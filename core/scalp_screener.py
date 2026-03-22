@@ -46,7 +46,7 @@ class ScalpScreener:
                 return cached_results[:top_n]
 
         logger.info(
-            "Scalp screening %s pairs (vol>$%.0f, trigger>=%.2f%%, capital=$%.2f)...",
+            "Scalp screening %s pairs (vol>$%.0f, trigger>=%.2f%%, capital=$%.5f)...",
             quote_asset, self.min_volume_usd, self.trigger_pct * 100, self.trade_capital,
         )
 

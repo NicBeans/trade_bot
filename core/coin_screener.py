@@ -44,7 +44,7 @@ class CoinScreener:
         num_grid_levels: int = 10,
     ) -> list[CoinCandidate]:
         """Screen and rank pairs. Returns top N candidates."""
-        logger.info("Screening %s pairs (capital=$%.2f, %d levels)...", quote_asset, self.min_capital, num_grid_levels)
+        logger.info("Screening %s pairs (capital=$%.5f, %d levels)...", quote_asset, self.min_capital, num_grid_levels)
 
         tickers = await self.exchange.get_all_tickers()
 

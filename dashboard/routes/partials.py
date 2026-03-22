@@ -43,10 +43,10 @@ async def stats():
     profit_class = "green" if net_pnl >= 0 else "red"
 
     return f'''<div class="grid-4">
-        {_stat(f"${price:,.2f}", bot.grid.config.symbol, "blue")}
-        {_stat(f"${net_pnl:,.4f}", "Net P&L", profit_class)}
+        {_stat(f"${price:,.5f}", bot.grid.config.symbol, "blue")}
+        {_stat(f"${net_pnl:,.5f}", "Net P&L", profit_class)}
         {_stat(str(cycles), "Completed Cycles")}
-        {_stat(f"${capital:,.2f}", "Available Capital")}
+        {_stat(f"${capital:,.5f}", "Available Capital")}
     </div>'''
 
 
@@ -66,16 +66,16 @@ async def grid():
         # Insert current price marker
         if not price_inserted and current_price >= level.buy_price:
             html_parts.append(
-                f'<div class="price-marker">PRICE ${current_price:,.2f}</div>'
+                f'<div class="price-marker">PRICE ${current_price:,.5f}</div>'
             )
             price_inserted = True
 
         state = level.state.value
         state_label = state.replace("_", " ")
-        price_display = f"${level.buy_price:,.2f}" if state in ("empty", "buy_pending") else f"${level.sell_price:,.2f}"
+        price_display = f"${level.buy_price:,.5f}" if state in ("empty", "buy_pending") else f"${level.sell_price:,.5f}"
         extra = ""
         if level.buy_fill_price:
-            extra = f' (bought @ ${level.buy_fill_price:,.2f})'
+            extra = f' (bought @ ${level.buy_fill_price:,.5f})'
 
         html_parts.append(
             f'<div class="grid-level {state}">'
@@ -86,7 +86,7 @@ async def grid():
         )
 
     if not price_inserted:
-        html_parts.insert(1, f'<div class="price-marker">PRICE ${current_price:,.2f}</div>')
+        html_parts.insert(1, f'<div class="price-marker">PRICE ${current_price:,.5f}</div>')
 
     html_parts.append('</div>')
     return "\n".join(html_parts)
@@ -133,11 +133,11 @@ async def risk():
 
     return f'''
         <table>
-            <tr><td style="color: var(--text-dim);">Total Capital</td><td>${r["total_capital"]:,.2f}</td></tr>
-            <tr><td style="color: var(--text-dim);">Available</td><td>${r["available_capital"]:,.2f}</td></tr>
-            <tr><td style="color: var(--text-dim);">Cumulative Profit</td><td style="color: var(--green);">${r["cumulative_profit"]:,.4f}</td></tr>
-            <tr><td style="color: var(--text-dim);">Cumulative Loss</td><td style="color: var(--red);">${r["cumulative_loss"]:,.4f}</td></tr>
-            <tr><td style="color: var(--text-dim);">Net P&L</td><td style="color: var(--{"green" if r["net_pnl"] >= 0 else "red"});">${r["net_pnl"]:,.4f}</td></tr>
+            <tr><td style="color: var(--text-dim);">Total Capital</td><td>${r["total_capital"]:,.5f}</td></tr>
+            <tr><td style="color: var(--text-dim);">Available</td><td>${r["available_capital"]:,.5f}</td></tr>
+            <tr><td style="color: var(--text-dim);">Cumulative Profit</td><td style="color: var(--green);">${r["cumulative_profit"]:,.5f}</td></tr>
+            <tr><td style="color: var(--text-dim);">Cumulative Loss</td><td style="color: var(--red);">${r["cumulative_loss"]:,.5f}</td></tr>
+            <tr><td style="color: var(--text-dim);">Net P&L</td><td style="color: var(--{"green" if r["net_pnl"] >= 0 else "red"});">${r["net_pnl"]:,.5f}</td></tr>
             <tr><td style="color: var(--text-dim);">Stop-Loss</td><td style="color: var(--{stop_class});">{stop_text}</td></tr>
             <tr><td style="color: var(--text-dim);">Preset</td><td>{r["preset"]}</td></tr>
         </table>
@@ -170,7 +170,7 @@ async def trade_history():
         profit_cell = ""
         if t.profit is not None:
             p_color = "green" if t.profit >= 0 else "red"
-            profit_cell = f'<td style="color: var(--{p_color});">${t.profit:,.4f}</td>'
+            profit_cell = f'<td style="color: var(--{p_color});">${t.profit:,.5f}</td>'
         else:
             profit_cell = '<td style="color: var(--text-dim);">—</td>'
         time_str = t.created_at.strftime("%m-%d %H:%M") if t.created_at else ""
@@ -179,9 +179,9 @@ async def trade_history():
             f'<td>{time_str}</td>'
             f'<td style="color: var(--{side_color});">{t.side}</td>'
             f'<td>{t.symbol}</td>'
-            f'<td>${t.price:,.4f}</td>'
+            f'<td>${t.price:,.5f}</td>'
             f'<td>{t.quantity:.6f}</td>'
-            f'<td>${t.fee:,.6f}</td>'
+            f'<td>${t.fee:,.5f}</td>'
             f'{profit_cell}'
             f'</tr>'
         )
@@ -212,12 +212,12 @@ async def config():
         ("Max Capital/Level", f"{bot.preset.max_capital_per_level_pct * 100:.1f}%"),
         ("Reset Cooldown", f"{bot.preset.grid_reset_cooldown_seconds}s"),
         ("Pause on Range Exit", "Yes" if bot.preset.pause_on_range_exit else "No"),
-        ("Trading Capital", f"${bot.settings.trading_capital:.2f}"),
+        ("Trading Capital", f"${bot.settings.trading_capital:.5f}"),
     ]
 
     if bot.grid:
         rows.append(("Symbol", bot.grid.config.symbol))
-        rows.append(("Grid Range", f"${bot.grid.config.lower_price:,.2f} - ${bot.grid.config.upper_price:,.2f}"))
+        rows.append(("Grid Range", f"${bot.grid.config.lower_price:,.5f} - ${bot.grid.config.upper_price:,.5f}"))
 
     table_rows = "\n".join(
         f'<tr><td style="color: var(--text-dim);">{k}</td><td>{v}</td></tr>' for k, v in rows
@@ -243,7 +243,7 @@ async def scalp_summary():
             <tr><td style="color: var(--text-dim);">State</td><td style="color: var(--{state_color});">{state.upper()}</td></tr>
             <tr><td style="color: var(--text-dim);">Trades</td><td>{s["stats"]["total_trades"]}</td></tr>
             <tr><td style="color: var(--text-dim);">Win Rate</td><td>{s["stats"]["win_rate"]}%</td></tr>
-            <tr><td style="color: var(--text-dim);">Profit</td><td style="color: var(--{"green" if s["stats"]["total_profit"] >= 0 else "red"});">${s["stats"]["total_profit"]:,.6f}</td></tr>
+            <tr><td style="color: var(--text-dim);">Profit</td><td style="color: var(--{"green" if s["stats"]["total_profit"] >= 0 else "red"});">${s["stats"]["total_profit"]:,.5f}</td></tr>
         </table>
     '''
     if s.get("current_trade"):
@@ -252,7 +252,7 @@ async def scalp_summary():
         html += f'''
             <div style="margin-top: 0.5rem; padding: 0.5rem; background: #1c2128; border-radius: 4px;">
                 <small style="color: var(--text-dim);">In Position:</small><br>
-                Entry: ${ct["entry_price"]:,.4f} | P&L: <span style="color: var(--{pnl_color});">${ct["unrealised_pnl"]:,.6f}</span> | {ct["elapsed"]:.0f}s
+                Entry: ${ct["entry_price"]:,.5f} | P&L: <span style="color: var(--{pnl_color});">${ct["unrealised_pnl"]:,.5f}</span> | {ct["elapsed"]:.0f}s
             </div>
         '''
     return html
@@ -270,10 +270,10 @@ async def scalp_status():
     state_color = state_colors.get(state, "text-dim")
 
     stats_html = f'''<div class="grid-4">
-        {_stat(f"${s['last_price']:,.4f}", s['symbol'], "blue")}
+        {_stat(f"${s['last_price']:,.5f}", s['symbol'], "blue")}
         {_stat(state.upper(), "State", state_color)}
         {_stat(s['mode'].replace('_', ' ').title(), "Mode")}
-        {_stat(f"${s['capital']:,.2f}", "Capital")}
+        {_stat(f"${s['capital']:,.5f}", "Capital")}
     </div>'''
 
     position_html = ""
@@ -284,9 +284,9 @@ async def scalp_status():
         <div class="card" style="border-color: var(--orange);">
             <div class="card-title">Active Position</div>
             <div class="grid-4">
-                {_stat(f"${ct['entry_price']:,.4f}", "Entry Price")}
+                {_stat(f"${ct['entry_price']:,.5f}", "Entry Price")}
                 {_stat(f"{ct['quantity']:.6f}", "Quantity")}
-                {_stat(f"${ct['unrealised_pnl']:,.6f}", "Unrealised P&L", pnl_color)}
+                {_stat(f"${ct['unrealised_pnl']:,.5f}", "Unrealised P&L", pnl_color)}
                 {_stat(f"{ct['elapsed']:.0f}s", "Duration")}
             </div>
         </div>'''
@@ -314,9 +314,9 @@ async def scalp_log():
         rows.append(
             f'<tr>'
             f'<td>{t.symbol}</td>'
-            f'<td>${t.entry_price:,.4f}</td>'
-            f'<td>${t.exit_price:,.4f}</td>' if t.exit_price else '<td>—</td>'
-            f'<td style="color: var(--{p_color});">${profit:,.6f}</td>'
+            f'<td>${t.entry_price:,.5f}</td>'
+            f'<td>${t.exit_price:,.5f}</td>' if t.exit_price else '<td>—</td>'
+            f'<td style="color: var(--{p_color});">${profit:,.5f}</td>'
             f'<td>{duration:.1f}s</td>'
             f'<td>{reason}</td>'
             f'<td style="color: var(--{p_color});">{result}</td>'
@@ -348,8 +348,8 @@ async def scalp_stats():
             <tr><td style="color: var(--text-dim);">Wins</td><td style="color: var(--green);">{st.wins}</td></tr>
             <tr><td style="color: var(--text-dim);">Losses</td><td style="color: var(--red);">{st.losses}</td></tr>
             <tr><td style="color: var(--text-dim);">Win Rate</td><td>{st.win_rate:.1f}%</td></tr>
-            <tr><td style="color: var(--text-dim);">Total Profit</td><td style="color: var(--{pnl_color});">${st.total_profit:,.6f}</td></tr>
-            <tr><td style="color: var(--text-dim);">Avg Profit/Trade</td><td>${st.avg_profit:,.6f}</td></tr>
+            <tr><td style="color: var(--text-dim);">Total Profit</td><td style="color: var(--{pnl_color});">${st.total_profit:,.5f}</td></tr>
+            <tr><td style="color: var(--text-dim);">Avg Profit/Trade</td><td>${st.avg_profit:,.5f}</td></tr>
             <tr><td style="color: var(--text-dim);">Avg Duration</td><td>{st.avg_duration:.1f}s</td></tr>
         </table>
     '''

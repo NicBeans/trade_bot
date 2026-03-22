@@ -27,4 +27,4 @@ async def force_reset():
         return {"error": "No current price available"}
 
     await bot._reset_grid(price)
-    return {"success": True, "message": f"Grid reset around {price:.2f}"}
+    return {"success": True, "message": f"Grid reset around {price:.5f}"}

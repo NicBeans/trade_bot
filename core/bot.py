@@ -78,7 +78,7 @@ class TradeBot:
 
         total_requested = self.settings.grid_capital + self.settings.scalp_capital
         if total_requested > usdt_balance:
-            logger.warning("Requested capital ($%.2f) exceeds balance ($%.2f), scaling down",
+            logger.warning("Requested capital ($%.5f) exceeds balance ($%.5f), scaling down",
                            total_requested, usdt_balance)
             ratio = usdt_balance / total_requested
             grid_capital = self.settings.grid_capital * ratio if grid_enabled else 0
@@ -87,7 +87,7 @@ class TradeBot:
             grid_capital = self.settings.grid_capital if grid_enabled else 0
             scalp_capital = self.settings.scalp_capital if scalp_enabled else 0
 
-        logger.info("Capital allocation — Grid: $%.2f | Scalp: $%.2f", grid_capital, scalp_capital)
+        logger.info("Capital allocation — Grid: $%.5f | Scalp: $%.5f", grid_capital, scalp_capital)
 
         # --- Start Grid Strategy ---
         if grid_enabled and grid_capital > 0:
@@ -225,7 +225,7 @@ class TradeBot:
             self.scalp_engine.on_trade_complete = self._on_scalp_trade_complete
 
             await self.notifier.send(
-                f"**Scalper Started** | {scalp_symbol} | Mode: {mode.value} | Capital: ${capital:.2f}"
+                f"**Scalper Started** | {scalp_symbol} | Mode: {mode.value} | Capital: ${capital:.5f}"
             )
 
             await self.scalp_engine.start()
@@ -376,7 +376,7 @@ class TradeBot:
             req = self.approvals.create_request(
                 "grid_swap",
                 f"Swap {current_symbol} -> {new_symbol} (score {current_score:.1f} -> {new_score:.1f}). "
-                f"Closing {len(held_levels)} positions, est. P&L: ${estimated_loss:,.4f} ({loss_pct:.2f}%)",
+                f"Closing {len(held_levels)} positions, est. P&L: ${estimated_loss:,.5f} ({loss_pct:.2f}%)",
             )
 
             # Wait for response with timeout
@@ -444,7 +444,7 @@ class TradeBot:
         grid_capital = self.risk_manager.available_capital if self.risk_manager else self.grid.config.total_capital
         await self._start_grid(new_symbol, grid_capital)
 
-        logger.info("Grid swapped: %s -> %s (sell P&L: $%.4f)", old_symbol, new_symbol, sell_pnl)
+        logger.info("Grid swapped: %s -> %s (sell P&L: $%.5f)", old_symbol, new_symbol, sell_pnl)
 
     async def _send_daily_summary(self):
         """Send daily P&L summary to Discord."""
@@ -516,12 +516,12 @@ class TradeBot:
                     )
                     await self.notifier.request_approval(
                         "Grid Reset",
-                        f"Price {current_price:.2f} exited grid range.\n"
+                        f"Price {current_price:.5f} exited grid range.\n"
                         f"Approve reset around new price?",
                     )
                     req = self.approvals.create_request(
                         "grid_reset",
-                        f"Price exited range. Reset grid around {current_price:.2f}?",
+                        f"Price exited range. Reset grid around {current_price:.5f}?",
                     )
                     # Don't block the price stream — handle in periodic tasks
                     return

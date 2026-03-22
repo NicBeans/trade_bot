@@ -86,9 +86,9 @@ class DiscordNotifier:
             "title": f"Grid Reset - {symbol}",
             "color": COLOR_BLUE,
             "fields": [
-                {"name": "Old Range", "value": f"${old_range[0]:,.2f} - ${old_range[1]:,.2f}", "inline": True},
-                {"name": "New Range", "value": f"${new_range[0]:,.2f} - ${new_range[1]:,.2f}", "inline": True},
-                {"name": "Capital", "value": f"${capital:,.2f}", "inline": True},
+                {"name": "Old Range", "value": f"${old_range[0]:,.5f} - ${old_range[1]:,.5f}", "inline": True},
+                {"name": "New Range", "value": f"${new_range[0]:,.5f} - ${new_range[1]:,.5f}", "inline": True},
+                {"name": "Capital", "value": f"${capital:,.5f}", "inline": True},
             ],
             "timestamp": datetime.utcnow().isoformat(),
         }
@@ -128,11 +128,11 @@ class DiscordNotifier:
             "color": COLOR_BLUE,
             "fields": [
                 {"name": "Symbol", "value": symbol, "inline": True},
-                {"name": "Price", "value": f"${price:,.2f}", "inline": True},
+                {"name": "Price", "value": f"${price:,.5f}", "inline": True},
                 {"name": "Preset", "value": preset, "inline": True},
-                {"name": "Grid Range", "value": f"${grid_range[0]:,.2f} - ${grid_range[1]:,.2f}", "inline": True},
+                {"name": "Grid Range", "value": f"${grid_range[0]:,.5f} - ${grid_range[1]:,.5f}", "inline": True},
                 {"name": "Levels", "value": str(levels), "inline": True},
-                {"name": "Capital", "value": f"${capital:,.2f}", "inline": True},
+                {"name": "Capital", "value": f"${capital:,.5f}", "inline": True},
             ],
             "timestamp": datetime.utcnow().isoformat(),
         }
@@ -159,8 +159,8 @@ class DiscordNotifier:
                 {"name": "Total Profit", "value": f"${total_profit:,.4f}", "inline": True},
                 {"name": "Net P&L", "value": f"${net_pnl:,.4f}", "inline": True},
                 {"name": "Cycles", "value": str(cycles), "inline": True},
-                {"name": "Capital", "value": f"${capital:,.2f}", "inline": True},
-                {"name": "Available", "value": f"${available:,.2f}", "inline": True},
+                {"name": "Capital", "value": f"${capital:,.5f}", "inline": True},
+                {"name": "Available", "value": f"${available:,.5f}", "inline": True},
             ],
             "timestamp": datetime.utcnow().isoformat(),
         }
@@ -187,7 +187,7 @@ class DiscordNotifier:
                 {"name": "Proposed Pair", "value": new_symbol, "inline": True},
                 {"name": "Score", "value": f"{current_score:.1f} -> {new_score:.1f}", "inline": True},
                 {"name": "Held Positions", "value": str(held_positions), "inline": True},
-                {"name": "Est. Sell Loss", "value": f"${estimated_loss:,.4f} ({loss_pct:.2f}%)", "inline": True},
+                {"name": "Est. Sell Loss", "value": f"${estimated_loss:,.5f} ({loss_pct:.2f}%)", "inline": True},
                 {"name": "Action", "value": action, "inline": False},
             ],
             "footer": {"text": "Approve or reject via dashboard"},
@@ -232,7 +232,7 @@ class DiscordNotifier:
             "color": COLOR_ORANGE,
             "fields": [
                 {"name": "Price", "value": f"${price:,.4f}", "inline": True},
-                {"name": "Grid Range", "value": f"${grid_range[0]:,.2f} - ${grid_range[1]:,.2f}", "inline": True},
+                {"name": "Grid Range", "value": f"${grid_range[0]:,.5f} - ${grid_range[1]:,.5f}", "inline": True},
                 {"name": "Action", "value": "**Paused** - awaiting input" if paused else "Auto-resetting grid", "inline": False},
             ],
             "timestamp": datetime.utcnow().isoformat(),
