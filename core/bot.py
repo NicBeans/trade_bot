@@ -175,7 +175,12 @@ class TradeBot:
             scalp_symbol = self.settings.scalp_symbol
             if not scalp_symbol:
                 trade_capital = capital * (self.settings.scalp_trade_pct / 100)
-                screener = ScalpScreener(self.scalp_exchange, trade_capital=trade_capital)
+                screener = ScalpScreener(
+                    self.scalp_exchange,
+                    min_volume_usd=self.settings.scalp_min_volume,
+                    trade_capital=trade_capital,
+                    trigger_pct=self.settings.scalp_trigger_pct,
+                )
                 candidates = await screener.screen(quote_asset="USDT", top_n=5)
                 if candidates:
                     scalp_symbol = candidates[0]["symbol"]

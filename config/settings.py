@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     scalp_time_limit: int = 120          # seconds
     scalp_trade_pct: float = 50.0        # % of scalp capital per trade
     scalp_cooldown: int = 5              # seconds between trades
+    scalp_min_volume: float = 5_000_000  # minimum 24h volume for scalp candidates
 
     model_config = {"env_file": str(Path(__file__).parent / ".env"), "extra": "ignore"}
 

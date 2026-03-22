@@ -65,6 +65,10 @@ class BinanceAdapter:
         """Get 24h ticker data for all pairs."""
         return await self._client.get_ticker()
 
+    async def get_klines(self, symbol: str, interval: str = "1m", limit: int = 480) -> list[list]:
+        """Get kline/candlestick data. Returns list of [open_time, open, high, low, close, ...]."""
+        return await self._client.get_klines(symbol=symbol, interval=interval, limit=limit)
+
     async def get_symbol_info(self, symbol: str) -> dict | None:
         """Get trading rules for a symbol (lot size, min notional, etc.)."""
         info = await self._client.get_exchange_info()
