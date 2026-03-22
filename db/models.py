@@ -34,21 +34,26 @@ class GridState(Base):
     lower_price: Mapped[float] = mapped_column(Float)
     num_levels: Mapped[int] = mapped_column(Integer)
     capital: Mapped[float] = mapped_column(Float)
+    total_profit: Mapped[float] = mapped_column(Float, default=0.0)
+    completed_cycles: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     trading_mode: Mapped[str] = mapped_column(String(10))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
-class GridLevel(Base):
+class GridLevelState(Base):
     __tablename__ = "grid_levels"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     grid_state_id: Mapped[int] = mapped_column(Integer)
-    price: Mapped[float] = mapped_column(Float)
-    status: Mapped[str] = mapped_column(String(10), default="empty")  # empty / holding / pending
+    level_index: Mapped[int] = mapped_column(Integer)
+    buy_price: Mapped[float] = mapped_column(Float)
+    sell_price: Mapped[float] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(String(15), default="empty")
     order_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    buy_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    buy_fill_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    quantity: Mapped[float] = mapped_column(Float, default=0.0)
 
 
 class DailySummary(Base):

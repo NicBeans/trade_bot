@@ -1,12 +1,12 @@
-"""Trade repository — persists trade data to PostgreSQL."""
+"""Trade and grid state repository — persists data to PostgreSQL."""
 
 import logging
 from datetime import datetime
 
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from db.models import Trade, Base
+from db.models import Trade, GridState, GridLevelState, Base
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,8 @@ class TradeRepository:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("Database tables initialized")
+
+    # --- Trade methods ---
 
     async def save_trade(
         self,
@@ -88,3 +90,124 @@ class TradeRepository:
             "total_fees": total_fees,
             "net_profit": total_profit - total_fees,
         }
+
+    # --- Grid state methods ---
+
+    async def save_grid_state(
+        self,
+        symbol: str,
+        upper_price: float,
+        lower_price: float,
+        num_levels: int,
+        capital: float,
+        trading_mode: str,
+        levels: list[dict],
+        total_profit: float = 0.0,
+        completed_cycles: int = 0,
+    ) -> int:
+        """Save or update the active grid state. Returns grid_state_id."""
+        async with self._session_factory() as session:
+            # Deactivate any existing active grid for this trading mode
+            await session.execute(
+                update(GridState)
+                .where(GridState.trading_mode == trading_mode, GridState.active == True)
+                .values(active=False)
+            )
+
+            # Create new grid state
+            gs = GridState(
+                symbol=symbol,
+                upper_price=upper_price,
+                lower_price=lower_price,
+                num_levels=num_levels,
+                capital=capital,
+                total_profit=total_profit,
+                completed_cycles=completed_cycles,
+                active=True,
+                trading_mode=trading_mode,
+            )
+            session.add(gs)
+            await session.flush()
+            grid_id = gs.id
+
+            # Delete old levels for this grid and save new ones
+            await session.execute(
+                delete(GridLevelState).where(GridLevelState.grid_state_id == grid_id)
+            )
+
+            for lv in levels:
+                session.add(GridLevelState(
+                    grid_state_id=grid_id,
+                    level_index=lv["index"],
+                    buy_price=lv["buy_price"],
+                    sell_price=lv["sell_price"],
+                    status=lv["status"],
+                    order_id=lv.get("order_id"),
+                    buy_fill_price=lv.get("buy_fill_price"),
+                    quantity=lv.get("quantity", 0.0),
+                ))
+
+            await session.commit()
+            logger.debug("Grid state saved: %s (%d levels)", symbol, len(levels))
+            return grid_id
+
+    async def update_grid_levels(self, trading_mode: str, levels: list[dict], total_profit: float, completed_cycles: int):
+        """Update level states and profit for the active grid."""
+        async with self._session_factory() as session:
+            # Find active grid
+            result = await session.execute(
+                select(GridState).where(GridState.trading_mode == trading_mode, GridState.active == True)
+            )
+            gs = result.scalar_one_or_none()
+            if not gs:
+                return
+
+            # Update grid totals
+            gs.total_profit = total_profit
+            gs.completed_cycles = completed_cycles
+
+            # Update each level
+            for lv in levels:
+                await session.execute(
+                    update(GridLevelState)
+                    .where(
+                        GridLevelState.grid_state_id == gs.id,
+                        GridLevelState.level_index == lv["index"],
+                    )
+                    .values(
+                        status=lv["status"],
+                        order_id=lv.get("order_id"),
+                        buy_fill_price=lv.get("buy_fill_price"),
+                        quantity=lv.get("quantity", 0.0),
+                    )
+                )
+
+            await session.commit()
+
+    async def get_active_grid(self, trading_mode: str) -> tuple[GridState | None, list[GridLevelState]]:
+        """Load the active grid state and its levels."""
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(GridState).where(GridState.trading_mode == trading_mode, GridState.active == True)
+            )
+            gs = result.scalar_one_or_none()
+            if not gs:
+                return None, []
+
+            result = await session.execute(
+                select(GridLevelState)
+                .where(GridLevelState.grid_state_id == gs.id)
+                .order_by(GridLevelState.level_index)
+            )
+            levels = list(result.scalars().all())
+            return gs, levels
+
+    async def deactivate_grid(self, trading_mode: str):
+        """Mark the active grid as inactive."""
+        async with self._session_factory() as session:
+            await session.execute(
+                update(GridState)
+                .where(GridState.trading_mode == trading_mode, GridState.active == True)
+                .values(active=False)
+            )
+            await session.commit()

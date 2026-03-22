@@ -119,49 +119,175 @@ class TradeBot:
             self.exchange, min_volume_usd=1_000_000, min_capital=capital,
         )
 
-        if symbol is None:
-            symbol = await self._select_symbol(capital)
-            if symbol is None:
-                logger.error("No suitable grid trading pair found.")
-                await self.notifier.send("**No suitable grid pairs found.**")
-                return
+        trading_mode = self.settings.trading_mode.value
 
+        # Try to restore saved grid state from DB
+        restored = await self._try_restore_grid(trading_mode, capital)
+
+        if not restored:
+            # No saved state — create fresh grid
+            if symbol is None:
+                symbol = await self._select_symbol(capital)
+                if symbol is None:
+                    logger.error("No suitable grid trading pair found.")
+                    await self.notifier.send("**No suitable grid pairs found.**")
+                    return
+
+            raw_info = await self.exchange.get_symbol_info(symbol)
+            if not raw_info:
+                logger.error("Symbol %s not found on exchange", symbol)
+                return
+            self.symbol_info = SymbolInfo(raw_info)
+            logger.info("Grid symbol info: %s", self.symbol_info)
+
+            current_price = await self.exchange.get_symbol_price(symbol)
+            logger.info("Current %s price: %.8f", symbol, current_price)
+
+            grid_range = current_price * self.preset.grid_range_pct
+            config = GridConfig(
+                symbol=symbol,
+                upper_price=current_price + grid_range,
+                lower_price=current_price - grid_range,
+                num_levels=self.preset.grid_levels,
+                total_capital=capital,
+            )
+
+            self.grid = GridEngine(config, self.symbol_info)
+            self.risk_manager = RiskManager(self.preset, config.total_capital)
+
+            await self.notifier.notify_bot_started(
+                mode=trading_mode,
+                symbol=symbol,
+                price=current_price,
+                grid_range=(config.lower_price, config.upper_price),
+                levels=self.preset.grid_levels,
+                capital=config.total_capital,
+                preset=self.preset.name,
+            )
+
+            await self.exchange.subscribe_user_data(self._on_order_update)
+            await self._place_initial_orders(current_price)
+
+            # Save initial grid state to DB
+            await self._persist_grid_state(full_save=True)
+        else:
+            # Restored — just subscribe to streams
+            await self.exchange.subscribe_user_data(self._on_order_update)
+
+        await self.exchange.subscribe_price_stream(self.grid.config.symbol, self._on_price_update)
+        logger.info("Grid active on %s", self.grid.config.symbol)
+
+    async def _try_restore_grid(self, trading_mode: str, capital: float) -> bool:
+        """Try to restore grid state from DB. Returns True if restored."""
+        try:
+            saved_grid, saved_levels = await self.trade_repo.get_active_grid(trading_mode)
+        except Exception:
+            logger.debug("Could not load grid state from DB")
+            return False
+
+        if not saved_grid or not saved_levels:
+            return False
+
+        symbol = saved_grid.symbol
+        logger.info("Found saved grid state: %s (%d levels)", symbol, len(saved_levels))
+
+        # Get symbol info
         raw_info = await self.exchange.get_symbol_info(symbol)
         if not raw_info:
-            logger.error("Symbol %s not found on exchange", symbol)
-            return
+            logger.warning("Saved grid symbol %s no longer available", symbol)
+            return False
         self.symbol_info = SymbolInfo(raw_info)
-        logger.info("Grid symbol info: %s", self.symbol_info)
 
-        current_price = await self.exchange.get_symbol_price(symbol)
-        logger.info("Current %s price: %.8f", symbol, current_price)
-
-        grid_range = current_price * self.preset.grid_range_pct
+        # Rebuild grid config from saved state
         config = GridConfig(
             symbol=symbol,
-            upper_price=current_price + grid_range,
-            lower_price=current_price - grid_range,
-            num_levels=self.preset.grid_levels,
-            total_capital=capital,
+            upper_price=saved_grid.upper_price,
+            lower_price=saved_grid.lower_price,
+            num_levels=saved_grid.num_levels,
+            total_capital=saved_grid.capital,
         )
 
         self.grid = GridEngine(config, self.symbol_info)
+        self.grid.total_profit = saved_grid.total_profit
+        self.grid.completed_cycles = saved_grid.completed_cycles
+
+        # Restore level states
+        level_dicts = [
+            {
+                "index": lv.level_index,
+                "buy_price": lv.buy_price,
+                "sell_price": lv.sell_price,
+                "status": lv.status,
+                "order_id": lv.order_id,
+                "buy_fill_price": lv.buy_fill_price,
+                "quantity": lv.quantity,
+            }
+            for lv in saved_levels
+        ]
+        self.grid.restore_levels(level_dicts)
+
         self.risk_manager = RiskManager(self.preset, config.total_capital)
 
-        await self.notifier.notify_bot_started(
-            mode=self.settings.trading_mode.value,
-            symbol=symbol,
-            price=current_price,
-            grid_range=(config.lower_price, config.upper_price),
-            levels=self.preset.grid_levels,
-            capital=config.total_capital,
-            preset=self.preset.name,
+        # Reconcile with Binance — check open orders are still valid
+        await self._reconcile_grid(symbol)
+
+        current_price = await self.exchange.get_symbol_price(symbol)
+        logger.info("Grid restored: %s @ %.8f | profit: %.6f | cycles: %d",
+                     symbol, current_price, self.grid.total_profit, self.grid.completed_cycles)
+
+        await self.notifier.send(
+            f"**Grid Restored** | {symbol} @ ${current_price:.5f}\n"
+            f"Profit: ${self.grid.total_profit:.5f} | Cycles: {self.grid.completed_cycles}\n"
+            f"{self.grid.get_status_summary()['level_states']}"
         )
 
-        await self.exchange.subscribe_user_data(self._on_order_update)
-        await self._place_initial_orders(current_price)
-        await self.exchange.subscribe_price_stream(symbol, self._on_price_update)
-        logger.info("Grid active on %s", symbol)
+        return True
+
+    async def _reconcile_grid(self, symbol: str):
+        """Reconcile saved grid state with actual Binance orders/balances."""
+        try:
+            # Check which saved order_ids are still open on Binance
+            open_orders = await self.exchange._client.get_open_orders(symbol=symbol)
+            open_ids = {str(o["orderId"]) for o in open_orders}
+
+            for level in self.grid.levels:
+                if level.order_id and str(level.order_id) not in open_ids:
+                    # Order no longer exists on Binance
+                    if level.state == LevelState.BUY_PENDING:
+                        # Buy order gone — might have filled while we were down
+                        # Check if we hold the coins
+                        balance = await self.exchange.get_account_balance(self.symbol_info.base_asset)
+                        if balance >= level.quantity and level.quantity > 0:
+                            logger.info("Reconcile: level %d buy likely filled while offline, marking as holding", level.index)
+                            level.state = LevelState.HOLDING
+                            level.buy_fill_price = level.buy_price
+                            level.order_id = None
+                        else:
+                            logger.info("Reconcile: level %d buy order gone, resetting to empty", level.index)
+                            level.state = LevelState.EMPTY
+                            level.order_id = None
+                    elif level.state == LevelState.SELL_PENDING:
+                        # Sell order gone — might have filled
+                        logger.info("Reconcile: level %d sell order gone, marking as empty (likely filled)", level.index)
+                        level.state = LevelState.EMPTY
+                        level.order_id = None
+                        level.buy_fill_price = None
+                        level.quantity = 0.0
+
+            # Re-place orders for levels that need them
+            current_price = await self.exchange.get_symbol_price(symbol)
+            for level in self.grid.levels:
+                if level.state == LevelState.HOLDING and level.order_id is None:
+                    # Need to place sell order
+                    await self._try_place_sell(level)
+                elif level.state == LevelState.EMPTY and level.buy_price <= current_price and level.order_id is None:
+                    # Need to place buy order
+                    await self._try_place_buy(level)
+
+            logger.info("Grid reconciliation complete")
+
+        except Exception:
+            logger.exception("Grid reconciliation failed — continuing with saved state")
 
     async def _start_scalper(self, capital: float):
         """Initialize and start the scalp trading strategy."""
@@ -560,6 +686,7 @@ class TradeBot:
             )
             self.grid.on_buy_placed(level.index, result["orderId"])
             self.risk_manager.reserve_capital(spend)
+            await self._persist_grid_state()
         except Exception:
             logger.exception("Failed to place buy order at level %d", level.index)
 
@@ -577,6 +704,7 @@ class TradeBot:
                 quantity=float(order_params["quantity"]),
             )
             self.grid.on_sell_placed(level.index, result["orderId"])
+            await self._persist_grid_state()
         except Exception:
             logger.exception("Failed to place sell order at level %d", level.index)
 
@@ -604,6 +732,7 @@ class TradeBot:
                             self.grid.config.symbol, "BUY", filled_price, filled_qty
                         )
                         await self._save_trade("BUY", filled_price, filled_qty, order_id, commission, data.get("commission_asset", ""))
+                        await self._persist_grid_state()
 
                 elif side == "SELL":
                     level = self.grid._find_level_by_order(order_id)
@@ -624,6 +753,7 @@ class TradeBot:
                             cycles=self.grid.completed_cycles,
                         )
                         await self._save_trade("SELL", filled_price, filled_qty, order_id, commission, data.get("commission_asset", ""), profit)
+                        await self._persist_grid_state()
 
                         if self.risk_manager.is_stop_loss_triggered():
                             await self._handle_stop_loss()
@@ -631,6 +761,34 @@ class TradeBot:
         elif status == "CANCELED":
             async with self._order_lock:
                 self.grid.on_order_cancelled(order_id)
+                await self._persist_grid_state()
+
+    async def _persist_grid_state(self, full_save: bool = False):
+        """Save current grid state to DB. full_save=True creates new record."""
+        if not self.grid:
+            return
+        try:
+            if full_save:
+                await self.trade_repo.save_grid_state(
+                    symbol=self.grid.config.symbol,
+                    upper_price=self.grid.config.upper_price,
+                    lower_price=self.grid.config.lower_price,
+                    num_levels=self.grid.config.num_levels,
+                    capital=self.grid.config.total_capital,
+                    trading_mode=self.settings.trading_mode.value,
+                    levels=self.grid.serialize_levels(),
+                    total_profit=self.grid.total_profit,
+                    completed_cycles=self.grid.completed_cycles,
+                )
+            else:
+                await self.trade_repo.update_grid_levels(
+                    trading_mode=self.settings.trading_mode.value,
+                    levels=self.grid.serialize_levels(),
+                    total_profit=self.grid.total_profit,
+                    completed_cycles=self.grid.completed_cycles,
+                )
+        except Exception:
+            logger.debug("Could not persist grid state to DB")
 
     async def _save_trade(self, side: str, price: float, qty: float, order_id, commission: float, commission_asset: str, profit: float | None = None):
         """Persist trade to database (best effort)."""

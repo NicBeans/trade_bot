@@ -208,6 +208,34 @@ class GridEngine:
             "level_states": states,
         }
 
+    def serialize_levels(self) -> list[dict]:
+        """Serialize all levels for DB persistence."""
+        return [
+            {
+                "index": l.index,
+                "buy_price": l.buy_price,
+                "sell_price": l.sell_price,
+                "status": l.state.value,
+                "order_id": str(l.order_id) if l.order_id else None,
+                "buy_fill_price": l.buy_fill_price,
+                "quantity": l.quantity,
+            }
+            for l in self.levels
+        ]
+
+    def restore_levels(self, saved_levels: list[dict]):
+        """Restore level states from DB data."""
+        for saved in saved_levels:
+            idx = saved["index"]
+            if idx < len(self.levels):
+                level = self.levels[idx]
+                level.state = LevelState(saved["status"])
+                level.order_id = int(saved["order_id"]) if saved.get("order_id") else None
+                level.buy_fill_price = saved.get("buy_fill_price")
+                level.quantity = saved.get("quantity", 0.0)
+        restored = sum(1 for l in self.levels if l.state != LevelState.EMPTY)
+        logger.info("Restored %d non-empty levels from saved state", restored)
+
     def _find_level_by_order(self, order_id: int) -> GridLevel | None:
         for level in self.levels:
             if level.order_id == order_id:
