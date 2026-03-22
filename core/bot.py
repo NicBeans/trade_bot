@@ -203,11 +203,18 @@ class TradeBot:
                 symbol_info=scalp_symbol_info,
                 exchange=self.scalp_exchange,
                 mode=mode,
+                # Price-based (deprecated modes)
                 trigger_pct=self.settings.scalp_trigger_pct,
                 trigger_window=self.settings.scalp_trigger_window,
+                time_limit=self.settings.scalp_time_limit,
+                # Volume spike
+                volume_multiplier=self.settings.scalp_volume_multiplier,
+                volume_direction_pct=self.settings.scalp_volume_direction_pct,
+                volume_timeout=self.settings.scalp_volume_timeout,
+                false_signal_cooldown=self.settings.scalp_false_signal_cooldown,
+                # Common
                 tp_pct=self.settings.scalp_tp_pct,
                 sl_pct=self.settings.scalp_sl_pct,
-                time_limit=self.settings.scalp_time_limit,
                 capital=capital,
                 trade_pct=self.settings.scalp_trade_pct,
                 cooldown=self.settings.scalp_cooldown,

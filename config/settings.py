@@ -72,6 +72,12 @@ class Settings(BaseSettings):
     scalp_cooldown: int = 5              # seconds between trades
     scalp_min_volume: float = 5_000_000  # minimum 24h volume for scalp candidates
 
+    # Volume spike mode settings
+    scalp_volume_multiplier: float = 3.0   # bucket volume must be Nx baseline to trigger
+    scalp_volume_direction_pct: float = 65  # % buy volume needed to confirm direction
+    scalp_volume_timeout: int = 45          # seconds before exiting a volume trade
+    scalp_false_signal_cooldown: int = 20   # seconds cooldown after false signal
+
     model_config = {"env_file": str(Path(__file__).parent / ".env"), "extra": "ignore"}
 
     @property
