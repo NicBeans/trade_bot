@@ -212,7 +212,8 @@ async def config():
         ("Max Capital/Level", f"{bot.preset.max_capital_per_level_pct * 100:.1f}%"),
         ("Reset Cooldown", f"{bot.preset.grid_reset_cooldown_seconds}s"),
         ("Pause on Range Exit", "Yes" if bot.preset.pause_on_range_exit else "No"),
-        ("Trading Capital", f"${bot.settings.trading_capital:.5f}"),
+        ("Grid Capital", f"${bot.settings.grid_capital:.5f}"),
+        ("Scalp Capital", f"${bot.settings.scalp_capital:.5f}"),
     ]
 
     if bot.grid:

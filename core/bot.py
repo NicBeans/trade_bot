@@ -788,7 +788,7 @@ class TradeBot:
                     completed_cycles=self.grid.completed_cycles,
                 )
         except Exception:
-            logger.debug("Could not persist grid state to DB")
+            logger.exception("Failed to persist grid state to DB")
 
     async def _save_trade(self, side: str, price: float, qty: float, order_id, commission: float, commission_asset: str, profit: float | None = None):
         """Persist trade to database (best effort)."""
