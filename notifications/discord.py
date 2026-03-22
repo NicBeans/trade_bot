@@ -166,6 +166,48 @@ class DiscordNotifier:
         }
         await self.send("", embed=embed)
 
+    async def notify_swap_proposal(
+        self,
+        current_symbol: str,
+        new_symbol: str,
+        new_score: float,
+        current_score: float,
+        held_positions: int,
+        estimated_loss: float,
+        loss_pct: float,
+        within_tolerance: bool,
+        timeout_seconds: int,
+    ):
+        action = f"Auto-swap in {timeout_seconds}s (within tolerance)" if within_tolerance else f"Waiting for approval (loss exceeds tolerance)"
+        embed = {
+            "title": "Grid Pair Swap Proposal",
+            "color": COLOR_PURPLE,
+            "fields": [
+                {"name": "Current Pair", "value": current_symbol, "inline": True},
+                {"name": "Proposed Pair", "value": new_symbol, "inline": True},
+                {"name": "Score", "value": f"{current_score:.1f} -> {new_score:.1f}", "inline": True},
+                {"name": "Held Positions", "value": str(held_positions), "inline": True},
+                {"name": "Est. Sell Loss", "value": f"${estimated_loss:,.4f} ({loss_pct:.2f}%)", "inline": True},
+                {"name": "Action", "value": action, "inline": False},
+            ],
+            "footer": {"text": "Approve or reject via dashboard"},
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        await self.send("@here", embed=embed)
+
+    async def notify_swap_executed(self, old_symbol: str, new_symbol: str, sell_pnl: float):
+        embed = {
+            "title": "Grid Pair Swapped",
+            "color": COLOR_BLUE,
+            "fields": [
+                {"name": "From", "value": old_symbol, "inline": True},
+                {"name": "To", "value": new_symbol, "inline": True},
+                {"name": "Position Close P&L", "value": f"${sell_pnl:,.4f}", "inline": True},
+            ],
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        await self.send("", embed=embed)
+
     async def notify_error(self, error: str):
         embed = {
             "title": "Bot Error",

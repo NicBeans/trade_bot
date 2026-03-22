@@ -42,6 +42,8 @@ class TradeBot:
         self._last_eval_price: float = 0.0
         self._order_lock = asyncio.Lock()
         self._last_daily_summary: float = 0.0
+        self._last_rescreen: float = 0.0
+        self._swap_in_progress = False
         self.approvals = ApprovalQueue()
         self.trade_repo = TradeRepository(async_session)
 
@@ -106,6 +108,7 @@ class TradeBot:
 
         # Keep alive + periodic tasks
         self._last_daily_summary = time.time()
+        self._last_rescreen = time.time()
         while self._running:
             await asyncio.sleep(10)
             await self._check_periodic_tasks()
@@ -288,6 +291,160 @@ class TradeBot:
         if now - self._last_daily_summary >= 86400:
             self._last_daily_summary = now
             await self._send_daily_summary()
+
+        # Periodic re-screening for grid pair swap
+        rescreen_interval = self.settings.grid_rescreen_interval * 3600
+        if (self.grid and self.screener and not self._swap_in_progress
+                and not self.settings.trading_symbol  # don't rescreen if symbol is manually set
+                and now - self._last_rescreen >= rescreen_interval):
+            self._last_rescreen = now
+            await self._check_pair_swap()
+
+    async def _check_pair_swap(self):
+        """Re-screen and propose a pair swap if a better candidate is found."""
+        if not self.grid or not self.screener:
+            return
+
+        current_symbol = self.grid.config.symbol
+        logger.info("Re-screening grid pairs (current: %s)...", current_symbol)
+
+        candidates = await self.screener.screen(
+            quote_asset="USDT",
+            top_n=5,
+            num_grid_levels=self.preset.grid_levels,
+        )
+
+        if not candidates:
+            return
+
+        best = candidates[0]
+        if best.symbol == current_symbol:
+            logger.info("Current pair %s is still the best pick (score: %.1f)", current_symbol, best.score)
+            return
+
+        # Find current symbol's score in the new screening
+        current_score = 0
+        for c in candidates:
+            if c.symbol == current_symbol:
+                current_score = c.score
+                break
+
+        # Only propose swap if new pair scores significantly better (>10% higher)
+        if best.score < current_score * 1.1:
+            logger.info("New top pair %s (%.1f) not significantly better than %s (%.1f), skipping",
+                         best.symbol, best.score, current_symbol, current_score)
+            return
+
+        logger.info("Better pair found: %s (%.1f) vs current %s (%.1f)",
+                     best.symbol, best.score, current_symbol, current_score)
+
+        await self._propose_swap(best.symbol, best.score, current_score)
+
+    async def _propose_swap(self, new_symbol: str, new_score: float, current_score: float):
+        """Propose a grid pair swap — notify, wait for approval or timeout."""
+        self._swap_in_progress = True
+
+        try:
+            current_symbol = self.grid.config.symbol
+
+            # Calculate cost of closing held positions
+            held_levels = [l for l in self.grid.levels if l.state.value in ("holding", "sell_pending")]
+            estimated_loss = 0.0
+            for level in held_levels:
+                if level.buy_fill_price and self._last_price > 0:
+                    pnl = (self._last_price - level.buy_fill_price) * level.quantity
+                    estimated_loss += pnl  # negative = loss
+
+            grid_capital = self.grid.config.total_capital
+            loss_pct = abs(estimated_loss) / grid_capital * 100 if grid_capital > 0 and estimated_loss < 0 else 0
+            within_tolerance = loss_pct <= self.settings.grid_swap_loss_tolerance
+
+            # Notify via Discord
+            await self.notifier.notify_swap_proposal(
+                current_symbol=current_symbol,
+                new_symbol=new_symbol,
+                new_score=new_score,
+                current_score=current_score,
+                held_positions=len(held_levels),
+                estimated_loss=estimated_loss,
+                loss_pct=loss_pct,
+                within_tolerance=within_tolerance,
+                timeout_seconds=self.settings.grid_swap_timeout,
+            )
+
+            # Create approval request
+            req = self.approvals.create_request(
+                "grid_swap",
+                f"Swap {current_symbol} -> {new_symbol} (score {current_score:.1f} -> {new_score:.1f}). "
+                f"Closing {len(held_levels)} positions, est. P&L: ${estimated_loss:,.4f} ({loss_pct:.2f}%)",
+            )
+
+            # Wait for response with timeout
+            approved = await self.approvals.wait_for_decision(req, timeout=self.settings.grid_swap_timeout)
+
+            if approved:
+                logger.info("Swap approved by user")
+                await self._execute_swap(new_symbol)
+            elif req.approved is None:
+                # Timeout — no response
+                if within_tolerance:
+                    logger.info("Swap timeout, auto-approving (loss %.2f%% within %.2f%% tolerance)",
+                                loss_pct, self.settings.grid_swap_loss_tolerance)
+                    await self._execute_swap(new_symbol)
+                else:
+                    logger.info("Swap timeout, NOT auto-approving (loss %.2f%% exceeds %.2f%% tolerance)",
+                                loss_pct, self.settings.grid_swap_loss_tolerance)
+                    await self.notifier.send(
+                        f"**Swap NOT executed** — loss ({loss_pct:.2f}%) exceeds tolerance "
+                        f"({self.settings.grid_swap_loss_tolerance}%). Will check again next cycle."
+                    )
+            else:
+                logger.info("Swap rejected by user")
+                await self.notifier.send(f"**Swap rejected** — staying on {current_symbol}")
+
+        except Exception:
+            logger.exception("Error during pair swap proposal")
+        finally:
+            self._swap_in_progress = False
+
+    async def _execute_swap(self, new_symbol: str):
+        """Execute the grid pair swap — close positions, cancel orders, rebuild grid."""
+        old_symbol = self.grid.config.symbol
+        sell_pnl = 0.0
+
+        async with self._order_lock:
+            # 1. Cancel all pending buy orders
+            pending_ids = self.grid.cancel_all_pending()
+            for oid in pending_ids:
+                try:
+                    await self.exchange.cancel_order(old_symbol, oid)
+                except Exception:
+                    logger.exception("Failed to cancel order %s during swap", oid)
+
+            # 2. Market sell all held positions
+            for level in self.grid.levels:
+                if level.state.value == "holding" and level.quantity > 0:
+                    try:
+                        qty_str = self.symbol_info.format_quantity(level.quantity)
+                        result = await self.exchange.place_market_order(
+                            symbol=old_symbol, side="SELL", quantity=float(qty_str),
+                        )
+                        exit_price = float(result.get("fills", [{}])[0].get("price", self._last_price)) if result.get("fills") else self._last_price
+                        pnl = (exit_price - level.buy_fill_price) * level.quantity if level.buy_fill_price else 0
+                        sell_pnl += pnl
+                        logger.info("Swap sell: level %d, qty %.8f @ %.8f, pnl: %.6f",
+                                     level.index, level.quantity, exit_price, pnl)
+                    except Exception:
+                        logger.exception("Failed to market sell level %d during swap", level.index)
+
+        # 3. Notify
+        await self.notifier.notify_swap_executed(old_symbol, new_symbol, sell_pnl)
+
+        # 4. Rebuild grid on new symbol
+        grid_capital = self.risk_manager.available_capital if self.risk_manager else self.grid.config.total_capital
+        await self._start_grid(new_symbol, grid_capital)
+
+        logger.info("Grid swapped: %s -> %s (sell P&L: $%.4f)", old_symbol, new_symbol, sell_pnl)
 
     async def _send_daily_summary(self):
         """Send daily P&L summary to Discord."""

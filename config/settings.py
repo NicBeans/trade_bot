@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     risk_preset: RiskPresetName = RiskPresetName.MODERATE
     bot_mode: BotMode = BotMode.SUPERVISED
 
+    # Grid pair swap
+    grid_rescreen_interval: int = 6        # hours between re-screening
+    grid_swap_loss_tolerance: float = 1.0  # max % of grid capital to auto-swap at loss
+    grid_swap_timeout: int = 120           # seconds to wait for Discord approval
+
     # Risk parameter overrides (None = use preset default)
     override_grid_levels: int | None = None
     override_grid_range_pct: float | None = None
