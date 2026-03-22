@@ -9,9 +9,10 @@ logger = logging.getLogger(__name__)
 
 
 class ScalpScreener:
-    def __init__(self, exchange: BinanceAdapter, min_volume_usd: float = 1_000_000):
+    def __init__(self, exchange: BinanceAdapter, min_volume_usd: float = 1_000_000, trade_capital: float = 5.0):
         self.exchange = exchange
         self.min_volume_usd = min_volume_usd
+        self.trade_capital = trade_capital
 
     async def screen(
         self,
@@ -20,10 +21,11 @@ class ScalpScreener:
         exclude_symbols: list[str] | None = None,
     ) -> list[dict]:
         """Screen pairs for scalping suitability. Prioritizes high volatility and volume."""
-        logger.info("Scalp screening %s pairs...", quote_asset)
+        logger.info("Scalp screening %s pairs (trade capital=$%.2f)...", quote_asset, self.trade_capital)
         exclude = set(exclude_symbols or [])
 
         tickers = await self.exchange.get_all_tickers()
+        symbol_infos = await self.exchange.get_all_symbol_info()
         candidates = []
 
         for t in tickers:
@@ -43,6 +45,17 @@ class ScalpScreener:
 
                 if volume < self.min_volume_usd:
                     continue
+
+                # Filter: trade capital must exceed min notional
+                sinfo = symbol_infos.get(symbol)
+                if sinfo:
+                    min_notional = 0.0
+                    for f in sinfo.get("filters", []):
+                        if f["filterType"] in ("NOTIONAL", "MIN_NOTIONAL"):
+                            min_notional = float(f.get("minNotional", 0))
+                            break
+                    if min_notional > 0 and self.trade_capital < min_notional:
+                        continue
 
                 volatility_pct = ((high - low) / price) * 100
 

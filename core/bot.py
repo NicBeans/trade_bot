@@ -74,20 +74,16 @@ class TradeBot:
         grid_enabled = self.settings.grid_capital > 0
         scalp_enabled = self.settings.scalp_capital > 0
 
-        if self.settings.is_testnet:
-            grid_capital = min(usdt_balance * 0.5, 100.0) if grid_enabled else 0
-            scalp_capital = min(usdt_balance * 0.3, 50.0) if scalp_enabled else 0
+        total_requested = self.settings.grid_capital + self.settings.scalp_capital
+        if total_requested > usdt_balance:
+            logger.warning("Requested capital ($%.2f) exceeds balance ($%.2f), scaling down",
+                           total_requested, usdt_balance)
+            ratio = usdt_balance / total_requested
+            grid_capital = self.settings.grid_capital * ratio if grid_enabled else 0
+            scalp_capital = self.settings.scalp_capital * ratio if scalp_enabled else 0
         else:
-            total_requested = self.settings.grid_capital + self.settings.scalp_capital
-            if total_requested > usdt_balance:
-                logger.warning("Requested capital ($%.2f) exceeds balance ($%.2f), scaling down",
-                               total_requested, usdt_balance)
-                ratio = usdt_balance / total_requested
-                grid_capital = self.settings.grid_capital * ratio if grid_enabled else 0
-                scalp_capital = self.settings.scalp_capital * ratio if scalp_enabled else 0
-            else:
-                grid_capital = self.settings.grid_capital if grid_enabled else 0
-                scalp_capital = self.settings.scalp_capital if scalp_enabled else 0
+            grid_capital = self.settings.grid_capital if grid_enabled else 0
+            scalp_capital = self.settings.scalp_capital if scalp_enabled else 0
 
         logger.info("Capital allocation — Grid: $%.2f | Scalp: $%.2f", grid_capital, scalp_capital)
 
@@ -99,8 +95,7 @@ class TradeBot:
 
         # --- Start Scalp Strategy ---
         if scalp_enabled and scalp_capital > 0:
-            grid_symbol = self.grid.config.symbol if self.grid else None
-            self._scalp_task = asyncio.create_task(self._start_scalper(scalp_capital, grid_symbol))
+            self._scalp_task = asyncio.create_task(self._start_scalper(scalp_capital))
         else:
             logger.info("Scalping disabled (SCALP_CAPITAL=0)")
 
@@ -165,7 +160,7 @@ class TradeBot:
         await self.exchange.subscribe_price_stream(symbol, self._on_price_update)
         logger.info("Grid active on %s", symbol)
 
-    async def _start_scalper(self, capital: float, exclude_symbol: str | None = None):
+    async def _start_scalper(self, capital: float):
         """Initialize and start the scalp trading strategy."""
         try:
             # Create dedicated exchange adapter
@@ -179,9 +174,9 @@ class TradeBot:
             # Select scalp symbol
             scalp_symbol = self.settings.scalp_symbol
             if not scalp_symbol:
-                screener = ScalpScreener(self.scalp_exchange)
-                exclude = [exclude_symbol] if exclude_symbol else []
-                candidates = await screener.screen(quote_asset="USDT", top_n=5, exclude_symbols=exclude)
+                trade_capital = capital * (self.settings.scalp_trade_pct / 100)
+                screener = ScalpScreener(self.scalp_exchange, trade_capital=trade_capital)
+                candidates = await screener.screen(quote_asset="USDT", top_n=5)
                 if candidates:
                     scalp_symbol = candidates[0]["symbol"]
                     logger.info("Scalp auto-selected: %s (score: %.1f)", scalp_symbol, candidates[0]["score"])

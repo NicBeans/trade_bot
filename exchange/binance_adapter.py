@@ -73,6 +73,11 @@ class BinanceAdapter:
                 return s
         return None
 
+    async def get_all_symbol_info(self) -> dict[str, dict]:
+        """Get trading rules for all symbols. Returns {symbol: info_dict}."""
+        info = await self._client.get_exchange_info()
+        return {s["symbol"]: s for s in info["symbols"]}
+
     async def place_limit_order(self, symbol: str, side: str, price: float, quantity: float) -> dict:
         """Place a limit order."""
         order = await self._client.create_order(

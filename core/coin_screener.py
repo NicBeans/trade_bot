@@ -44,9 +44,14 @@ class CoinScreener:
         num_grid_levels: int = 10,
     ) -> list[CoinCandidate]:
         """Screen and rank pairs. Returns top N candidates."""
-        logger.info("Screening %s pairs...", quote_asset)
+        logger.info("Screening %s pairs (capital=$%.2f, %d levels)...", quote_asset, self.min_capital, num_grid_levels)
 
         tickers = await self.exchange.get_all_tickers()
+
+        # Fetch exchange info for min notional filtering
+        symbol_infos = await self.exchange.get_all_symbol_info()
+
+        capital_per_level = self.min_capital / num_grid_levels
         candidates = []
 
         for t in tickers:
@@ -82,9 +87,16 @@ class CoinScreener:
                 if volatility_pct < 0.5:
                     continue
 
-                # Check if min order size works with our capital
-                capital_per_level = self.min_capital / num_grid_levels
-                min_qty_value = capital_per_level  # rough check
+                # Filter: capital per level must exceed min notional
+                sinfo = symbol_infos.get(symbol)
+                if sinfo:
+                    min_notional = 0.0
+                    for f in sinfo.get("filters", []):
+                        if f["filterType"] in ("NOTIONAL", "MIN_NOTIONAL"):
+                            min_notional = float(f.get("minNotional", 0))
+                            break
+                    if min_notional > 0 and capital_per_level < min_notional:
+                        continue
 
                 candidates.append(CoinCandidate(
                     symbol=symbol,
