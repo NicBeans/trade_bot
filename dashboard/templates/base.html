@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trade Bot</title>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --surface: #161b22;
+            --border: #30363d;
+            --text: #e6edf3;
+            --text-dim: #8b949e;
+            --green: #3fb950;
+            --red: #f85149;
+            --orange: #d29922;
+            --blue: #58a6ff;
+            --purple: #bc8cff;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 14px;
+        }
+        a { color: var(--blue); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        /* Nav */
+        .nav {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+            padding: 0.75rem 1.5rem;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+        }
+        .nav-brand { font-weight: 700; font-size: 1.1rem; }
+        .nav a { color: var(--text-dim); font-size: 0.9rem; }
+        .nav a:hover, .nav a.active { color: var(--text); text-decoration: none; }
+        .badge {
+            display: inline-block;
+            padding: 0.15rem 0.5rem;
+            border-radius: 10px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .badge-testnet { background: var(--orange); color: #000; }
+        .badge-live { background: var(--red); color: #fff; }
+        .badge-running { background: var(--green); color: #000; }
+        .badge-stopped { background: var(--text-dim); color: #000; }
+
+        /* Layout */
+        .container { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+
+        /* Cards */
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem 1.25rem;
+            margin-bottom: 1rem;
+        }
+        .card-title {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            margin-bottom: 0.75rem;
+            letter-spacing: 0.05em;
+        }
+
+        /* Grid layout */
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
+        .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 1rem; }
+
+        /* Stats */
+        .stat { text-align: center; }
+        .stat-value { font-size: 1.5rem; font-weight: 700; }
+        .stat-label { font-size: 0.75rem; color: var(--text-dim); margin-top: 0.25rem; }
+        .stat-value.green { color: var(--green); }
+        .stat-value.red { color: var(--red); }
+        .stat-value.blue { color: var(--blue); }
+
+        /* Grid visualization */
+        .grid-levels { display: flex; flex-direction: column; gap: 4px; }
+        .grid-level {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 0.75rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            font-family: monospace;
+        }
+        .grid-level.empty { background: #1c2128; color: var(--text-dim); }
+        .grid-level.buy_pending { background: #0d2818; color: var(--green); border-left: 3px solid var(--green); }
+        .grid-level.holding { background: #2a1f0b; color: var(--orange); border-left: 3px solid var(--orange); }
+        .grid-level.sell_pending { background: #2a0f0f; color: var(--red); border-left: 3px solid var(--red); }
+        .grid-level .level-idx { width: 2rem; color: var(--text-dim); }
+        .grid-level .level-price { flex: 1; }
+        .grid-level .level-state { width: 6rem; text-align: right; font-size: 0.75rem; text-transform: uppercase; }
+        .price-marker {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.3rem 0.75rem;
+            background: var(--blue);
+            color: #000;
+            border-radius: 4px;
+            font-weight: 700;
+            font-size: 0.85rem;
+            font-family: monospace;
+        }
+
+        /* Approvals */
+        .approval {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem;
+            background: #1f1233;
+            border: 1px solid var(--purple);
+            border-radius: 6px;
+            margin-bottom: 0.5rem;
+        }
+        .approval-actions { display: flex; gap: 0.5rem; }
+
+        /* Buttons */
+        .btn {
+            padding: 0.4rem 1rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--surface);
+            color: var(--text);
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+        .btn:hover { background: var(--border); }
+        .btn-green { border-color: var(--green); color: var(--green); }
+        .btn-green:hover { background: #0d2818; }
+        .btn-red { border-color: var(--red); color: var(--red); }
+        .btn-red:hover { background: #2a0f0f; }
+
+        /* Table */
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid var(--border); }
+        th { color: var(--text-dim); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        td { font-family: monospace; font-size: 0.85rem; }
+
+        @media (max-width: 768px) {
+            .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <nav class="nav">
+        <span class="nav-brand">Trade Bot</span>
+        <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Overview</a>
+        <a href="/trades" class="{% if request.url.path == '/trades' %}active{% endif %}">Trades</a>
+        <a href="/settings" class="{% if request.url.path == '/settings' %}active{% endif %}">Settings</a>
+        <span id="nav-badges" hx-get="/api/partials/badges" hx-trigger="load, every 5s" hx-swap="innerHTML"></span>
+    </nav>
+    <div class="container">
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>

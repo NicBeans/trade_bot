@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="card">
+    <div class="card-title">Trade History</div>
+    <div id="trade-history" hx-get="/api/partials/trade-history" hx-trigger="load, every 5s" hx-swap="innerHTML">
+        <p style="color: var(--text-dim);">Loading...</p>
+    </div>
+</div>
+
+{% endblock %}

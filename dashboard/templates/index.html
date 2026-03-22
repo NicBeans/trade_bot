@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+
+<!-- Stats row -->
+<div id="stats" hx-get="/api/partials/stats" hx-trigger="load, every 3s" hx-swap="innerHTML">
+    <div class="grid-4">
+        <div class="card"><div class="stat"><div class="stat-value">--</div><div class="stat-label">Price</div></div></div>
+        <div class="card"><div class="stat"><div class="stat-value">--</div><div class="stat-label">Profit</div></div></div>
+        <div class="card"><div class="stat"><div class="stat-value">--</div><div class="stat-label">Cycles</div></div></div>
+        <div class="card"><div class="stat"><div class="stat-value">--</div><div class="stat-label">Capital</div></div></div>
+    </div>
+</div>
+
+<div class="grid-2">
+    <!-- Grid visualization -->
+    <div class="card">
+        <div class="card-title">Grid Levels</div>
+        <div id="grid-levels" hx-get="/api/partials/grid" hx-trigger="load, every 3s" hx-swap="innerHTML">
+            <p style="color: var(--text-dim);">Loading grid...</p>
+        </div>
+    </div>
+
+    <!-- Right column -->
+    <div>
+        <!-- Approvals -->
+        <div class="card">
+            <div class="card-title">Pending Approvals</div>
+            <div id="approvals" hx-get="/api/partials/approvals" hx-trigger="load, every 5s" hx-swap="innerHTML">
+                <p style="color: var(--text-dim);">None</p>
+            </div>
+        </div>
+
+        <!-- Risk status -->
+        <div class="card">
+            <div class="card-title">Risk Status</div>
+            <div id="risk" hx-get="/api/partials/risk" hx-trigger="load, every 5s" hx-swap="innerHTML">
+                <p style="color: var(--text-dim);">Loading...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,53 @@
+services:
+  bot:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file:
+      - config/.env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://tradebot:tradebot@postgres:5432/tradebot
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - bot-logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tradebot
+      POSTGRES_PASSWORD: tradebot
+      POSTGRES_DB: tradebot
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tradebot"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@tradebot.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    profiles:
+      - tools
+
+volumes:
+  pgdata:
+  bot-logs:
