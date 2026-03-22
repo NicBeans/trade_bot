@@ -29,6 +29,11 @@ async def trades_page(request: Request):
     return templates.TemplateResponse("trades.html", {"request": request})
 
 
+@app.get("/scalping", response_class=HTMLResponse)
+async def scalping_page(request: Request):
+    return templates.TemplateResponse("scalping.html", {"request": request})
+
+
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     return templates.TemplateResponse("settings.html", {"request": request})

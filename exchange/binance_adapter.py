@@ -87,6 +87,18 @@ class BinanceAdapter:
                      side, symbol, order["orderId"], price, quantity, order["status"])
         return order
 
+    async def place_market_order(self, symbol: str, side: str, quantity: float) -> dict:
+        """Place a market order."""
+        order = await self._client.create_order(
+            symbol=symbol,
+            side=side,
+            type="MARKET",
+            quantity=str(quantity),
+        )
+        logger.info("Market order: %s %s %s (qty: %s) -> %s",
+                     side, symbol, order["orderId"], quantity, order["status"])
+        return order
+
     async def cancel_order(self, symbol: str, order_id: int) -> dict:
         """Cancel an open order."""
         result = await self._client.cancel_order(symbol=symbol, orderId=order_id)

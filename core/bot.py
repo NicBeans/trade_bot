@@ -9,6 +9,8 @@ from core.approval import ApprovalQueue
 from core.coin_screener import CoinScreener
 from core.grid_engine import GridEngine, GridConfig, LevelState
 from core.risk_manager import RiskManager
+from core.scalp_engine import ScalpEngine, ScalpMode, ScalpTrade
+from core.scalp_screener import ScalpScreener
 from db.database import async_session
 from db.repository import TradeRepository
 from exchange.binance_adapter import BinanceAdapter
@@ -43,6 +45,11 @@ class TradeBot:
         self.approvals = ApprovalQueue()
         self.trade_repo = TradeRepository(async_session)
 
+        # Scalping
+        self.scalp_engine: ScalpEngine | None = None
+        self.scalp_exchange: BinanceAdapter | None = None
+        self._scalp_task: asyncio.Task | None = None
+
     async def start(self, symbol: str | None = None):
         logger.info(
             "Starting TradeBot in %s mode (%s)",
@@ -63,33 +70,71 @@ class TradeBot:
         usdt_balance = await self.exchange.get_account_balance("USDT")
         logger.info("USDT balance: %.4f", usdt_balance)
 
-        # Determine trading capital
-        capital = min(usdt_balance, self.settings.trading_capital) if not self.settings.is_testnet else min(usdt_balance, 100.0)
+        # Determine per-strategy capital
+        grid_enabled = self.settings.grid_capital > 0
+        scalp_enabled = self.settings.scalp_capital > 0
 
-        # Run coin screener if no symbol specified
+        if self.settings.is_testnet:
+            grid_capital = min(usdt_balance * 0.5, 100.0) if grid_enabled else 0
+            scalp_capital = min(usdt_balance * 0.3, 50.0) if scalp_enabled else 0
+        else:
+            total_requested = self.settings.grid_capital + self.settings.scalp_capital
+            if total_requested > usdt_balance:
+                logger.warning("Requested capital ($%.2f) exceeds balance ($%.2f), scaling down",
+                               total_requested, usdt_balance)
+                ratio = usdt_balance / total_requested
+                grid_capital = self.settings.grid_capital * ratio if grid_enabled else 0
+                scalp_capital = self.settings.scalp_capital * ratio if scalp_enabled else 0
+            else:
+                grid_capital = self.settings.grid_capital if grid_enabled else 0
+                scalp_capital = self.settings.scalp_capital if scalp_enabled else 0
+
+        logger.info("Capital allocation — Grid: $%.2f | Scalp: $%.2f", grid_capital, scalp_capital)
+
+        # --- Start Grid Strategy ---
+        if grid_enabled and grid_capital > 0:
+            await self._start_grid(symbol, grid_capital)
+        else:
+            logger.info("Grid trading disabled (GRID_CAPITAL=0)")
+
+        # --- Start Scalp Strategy ---
+        if scalp_enabled and scalp_capital > 0:
+            grid_symbol = self.grid.config.symbol if self.grid else None
+            self._scalp_task = asyncio.create_task(self._start_scalper(scalp_capital, grid_symbol))
+        else:
+            logger.info("Scalping disabled (SCALP_CAPITAL=0)")
+
+        if not grid_enabled and not scalp_enabled:
+            logger.error("Both strategies disabled. Set GRID_CAPITAL or SCALP_CAPITAL > 0.")
+            self._running = False
+            return
+
+        # Keep alive + periodic tasks
+        self._last_daily_summary = time.time()
+        while self._running:
+            await asyncio.sleep(10)
+            await self._check_periodic_tasks()
+
+    async def _start_grid(self, symbol: str | None, capital: float):
+        """Initialize and start the grid trading strategy."""
         self.screener = CoinScreener(
-            self.exchange,
-            min_volume_usd=1_000_000,
-            min_capital=capital,
+            self.exchange, min_volume_usd=1_000_000, min_capital=capital,
         )
 
         if symbol is None:
             symbol = await self._select_symbol(capital)
             if symbol is None:
-                logger.error("No suitable trading pair found. Exiting.")
-                await self.notifier.send("**No suitable pairs found.** Bot shutting down.")
-                self._running = False
+                logger.error("No suitable grid trading pair found.")
+                await self.notifier.send("**No suitable grid pairs found.**")
                 return
 
-        # Get symbol info for order precision
         raw_info = await self.exchange.get_symbol_info(symbol)
         if not raw_info:
             logger.error("Symbol %s not found on exchange", symbol)
             return
         self.symbol_info = SymbolInfo(raw_info)
-        logger.info("Symbol info: %s", self.symbol_info)
+        logger.info("Grid symbol info: %s", self.symbol_info)
 
-        # Get current price and set up grid
         current_price = await self.exchange.get_symbol_price(symbol)
         logger.info("Current %s price: %.8f", symbol, current_price)
 
@@ -115,22 +160,99 @@ class TradeBot:
             preset=self.preset.name,
         )
 
-        # Subscribe to user data for order fills
         await self.exchange.subscribe_user_data(self._on_order_update)
-
-        # Place initial grid orders
         await self._place_initial_orders(current_price)
-
-        # Subscribe to price stream
         await self.exchange.subscribe_price_stream(symbol, self._on_price_update)
+        logger.info("Grid active on %s", symbol)
 
-        logger.info("Bot is running. Grid active on %s", symbol)
+    async def _start_scalper(self, capital: float, exclude_symbol: str | None = None):
+        """Initialize and start the scalp trading strategy."""
+        try:
+            # Create dedicated exchange adapter
+            self.scalp_exchange = BinanceAdapter(
+                api_key=self.settings.binance_api_key,
+                api_secret=self.settings.binance_api_secret,
+                testnet=self.settings.is_testnet,
+            )
+            await self.scalp_exchange.connect()
 
-        # Keep alive + periodic tasks
-        self._last_daily_summary = time.time()
-        while self._running:
-            await asyncio.sleep(10)
-            await self._check_periodic_tasks()
+            # Select scalp symbol
+            scalp_symbol = self.settings.scalp_symbol
+            if not scalp_symbol:
+                screener = ScalpScreener(self.scalp_exchange)
+                exclude = [exclude_symbol] if exclude_symbol else []
+                candidates = await screener.screen(quote_asset="USDT", top_n=5, exclude_symbols=exclude)
+                if candidates:
+                    scalp_symbol = candidates[0]["symbol"]
+                    logger.info("Scalp auto-selected: %s (score: %.1f)", scalp_symbol, candidates[0]["score"])
+                else:
+                    logger.warning("No suitable scalp pairs found")
+                    return
+
+            # Get symbol info
+            raw_info = await self.scalp_exchange.get_symbol_info(scalp_symbol)
+            if not raw_info:
+                logger.error("Scalp symbol %s not found", scalp_symbol)
+                return
+            scalp_symbol_info = SymbolInfo(raw_info)
+
+            # Create scalp engine
+            mode = ScalpMode(self.settings.scalp_mode)
+            self.scalp_engine = ScalpEngine(
+                symbol=scalp_symbol,
+                symbol_info=scalp_symbol_info,
+                exchange=self.scalp_exchange,
+                mode=mode,
+                trigger_pct=self.settings.scalp_trigger_pct,
+                trigger_window=self.settings.scalp_trigger_window,
+                tp_pct=self.settings.scalp_tp_pct,
+                sl_pct=self.settings.scalp_sl_pct,
+                time_limit=self.settings.scalp_time_limit,
+                capital=capital,
+                trade_pct=self.settings.scalp_trade_pct,
+                cooldown=self.settings.scalp_cooldown,
+            )
+            self.scalp_engine.on_trade_complete = self._on_scalp_trade_complete
+
+            await self.notifier.send(
+                f"**Scalper Started** | {scalp_symbol} | Mode: {mode.value} | Capital: ${capital:.2f}"
+            )
+
+            await self.scalp_engine.start()
+
+            # Keep scalper alive
+            while self._running:
+                await asyncio.sleep(1)
+
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("Scalper crashed")
+        finally:
+            if self.scalp_engine:
+                await self.scalp_engine.stop()
+            if self.scalp_exchange:
+                await self.scalp_exchange.disconnect()
+
+    async def _on_scalp_trade_complete(self, trade: ScalpTrade):
+        """Handle completed scalp trade — persist and notify."""
+        await self._save_trade(
+            side="SELL" if trade.profit is not None else "BUY",
+            price=trade.exit_price or trade.entry_price,
+            qty=trade.quantity,
+            order_id=trade.order_id or "",
+            commission=0,
+            commission_asset="",
+            profit=trade.profit,
+        )
+        if trade.profit is not None:
+            color = "profit" if trade.profit >= 0 else "loss"
+            duration = (trade.exit_time - trade.entry_time) if trade.exit_time else 0
+            await self.notifier.send(
+                f"**Scalp {'Win' if trade.profit >= 0 else 'Loss'}** | {trade.symbol} | "
+                f"Entry: ${trade.entry_price:,.4f} → Exit: ${trade.exit_price:,.4f} | "
+                f"P&L: ${trade.profit:,.6f} | Reason: {trade.exit_reason} | {duration:.1f}s"
+            )
 
     async def _select_symbol(self, capital: float) -> str | None:
         """Run screener and select a symbol. Returns None if no candidates."""
@@ -418,23 +540,43 @@ class TradeBot:
         logger.info("Stopping TradeBot")
         self._running = False
 
-        # Cancel open orders
+        # Stop scalper
+        if self._scalp_task and not self._scalp_task.done():
+            self._scalp_task.cancel()
+            try:
+                await self._scalp_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+        if self.scalp_engine:
+            scalp_status = self.scalp_engine.get_status()
+            logger.info("Final scalp status: %s", scalp_status)
+
+        # Cancel grid orders
+        grid_profit = 0.0
+        grid_cycles = 0
         if self.grid:
             summary = self.grid.get_status_summary()
             risk_status = self.risk_manager.get_status() if self.risk_manager else {}
             logger.info("Final grid status: %s", summary)
             logger.info("Final risk status: %s", risk_status)
-            await self.notifier.notify_bot_stopped(
-                total_profit=summary["total_profit"],
-                net_pnl=risk_status.get("net_pnl", 0),
-                cycles=summary["completed_cycles"],
-            )
+            grid_profit = summary["total_profit"]
+            grid_cycles = summary["completed_cycles"]
             pending_ids = self.grid.cancel_all_pending()
             for oid in pending_ids:
                 try:
                     await self.exchange.cancel_order(self.grid.config.symbol, oid)
                 except Exception:
                     logger.exception("Failed to cancel order %s on shutdown", oid)
+
+        # Combined stop notification
+        scalp_profit = self.scalp_engine.stats.total_profit if self.scalp_engine else 0
+        scalp_trades = self.scalp_engine.stats.total_trades if self.scalp_engine else 0
+        await self.notifier.notify_bot_stopped(
+            total_profit=grid_profit + scalp_profit,
+            net_pnl=(self.risk_manager.get_status().get("net_pnl", 0) if self.risk_manager else 0) + scalp_profit,
+            cycles=grid_cycles,
+        )
 
         await self.notifier.close()
         await self.exchange.disconnect()

@@ -53,11 +53,23 @@ class Settings(BaseSettings):
     override_grid_reset_cooldown_seconds: int | None = None
     override_pause_on_range_exit: bool | None = None
 
-    # Trading capital cap (mainnet only — testnet uses higher cap)
-    trading_capital: float = 20.0
+    # Per-strategy capital caps (USD). Set to 0 to disable a strategy.
+    grid_capital: float = 10.0
+    scalp_capital: float = 10.0
 
-    # Symbol override (empty = use coin screener)
-    trading_symbol: str = ""
+    # Symbol overrides (empty = use screener)
+    trading_symbol: str = ""   # Grid symbol
+    scalp_symbol: str = ""     # Scalp symbol
+
+    # Scalp strategy settings
+    scalp_mode: str = "momentum"  # "momentum" or "mean_reversion"
+    scalp_trigger_pct: float = 0.5
+    scalp_trigger_window: int = 30       # seconds
+    scalp_tp_pct: float = 0.4
+    scalp_sl_pct: float = 0.3
+    scalp_time_limit: int = 120          # seconds
+    scalp_trade_pct: float = 50.0        # % of scalp capital per trade
+    scalp_cooldown: int = 5              # seconds between trades
 
     model_config = {"env_file": str(Path(__file__).parent / ".env"), "extra": "ignore"}
 

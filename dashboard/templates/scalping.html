@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+
+<!-- Live status -->
+<div id="scalp-status" hx-get="/api/partials/scalp-status" hx-trigger="load, every 1s" hx-swap="innerHTML">
+    <div class="card"><p style="color: var(--text-dim);">Loading scalp status...</p></div>
+</div>
+
+<div class="grid-2">
+    <!-- Trade log -->
+    <div class="card">
+        <div class="card-title">Recent Scalp Trades</div>
+        <div id="scalp-log" hx-get="/api/partials/scalp-log" hx-trigger="load, every 2s" hx-swap="innerHTML">
+            <p style="color: var(--text-dim);">Loading...</p>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="card">
+        <div class="card-title">Scalp Statistics</div>
+        <div id="scalp-stats" hx-get="/api/partials/scalp-stats" hx-trigger="load, every 3s" hx-swap="innerHTML">
+            <p style="color: var(--text-dim);">Loading...</p>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

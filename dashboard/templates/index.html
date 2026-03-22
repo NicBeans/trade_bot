@@ -22,6 +22,14 @@
 
     <!-- Right column -->
     <div>
+        <!-- Scalp summary -->
+        <div class="card">
+            <div class="card-title">Scalping</div>
+            <div id="scalp-summary" hx-get="/api/partials/scalp-summary" hx-trigger="load, every 2s" hx-swap="innerHTML">
+                <p style="color: var(--text-dim);">Loading...</p>
+            </div>
+        </div>
+
         <!-- Approvals -->
         <div class="card">
             <div class="card-title">Pending Approvals</div>

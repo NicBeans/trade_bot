@@ -160,6 +160,7 @@
     <nav class="nav">
         <span class="nav-brand">Trade Bot</span>
         <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Overview</a>
+        <a href="/scalping" class="{% if request.url.path == '/scalping' %}active{% endif %}">Scalping</a>
         <a href="/trades" class="{% if request.url.path == '/trades' %}active{% endif %}">Trades</a>
         <a href="/settings" class="{% if request.url.path == '/settings' %}active{% endif %}">Settings</a>
         <span id="nav-badges" hx-get="/api/partials/badges" hx-trigger="load, every 5s" hx-swap="innerHTML"></span>

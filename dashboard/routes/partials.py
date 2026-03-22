@@ -225,6 +225,136 @@ async def config():
     return f"<table>{table_rows}</table>"
 
 
+@router.get("/scalp-summary", response_class=HTMLResponse)
+async def scalp_summary():
+    bot = get_bot()
+    if not bot or not bot.scalp_engine:
+        return '<p style="color: var(--text-dim);">Scalping disabled</p>'
+
+    s = bot.scalp_engine.get_status()
+    state = s["state"]
+    state_colors = {"scanning": "blue", "in_position": "orange", "cooldown": "text-dim", "entering": "green", "exiting": "red", "stopped": "text-dim"}
+    state_color = state_colors.get(state, "text-dim")
+
+    html = f'''
+        <table>
+            <tr><td style="color: var(--text-dim);">Pair</td><td>{s["symbol"]}</td></tr>
+            <tr><td style="color: var(--text-dim);">Mode</td><td>{s["mode"]}</td></tr>
+            <tr><td style="color: var(--text-dim);">State</td><td style="color: var(--{state_color});">{state.upper()}</td></tr>
+            <tr><td style="color: var(--text-dim);">Trades</td><td>{s["stats"]["total_trades"]}</td></tr>
+            <tr><td style="color: var(--text-dim);">Win Rate</td><td>{s["stats"]["win_rate"]}%</td></tr>
+            <tr><td style="color: var(--text-dim);">Profit</td><td style="color: var(--{"green" if s["stats"]["total_profit"] >= 0 else "red"});">${s["stats"]["total_profit"]:,.6f}</td></tr>
+        </table>
+    '''
+    if s.get("current_trade"):
+        ct = s["current_trade"]
+        pnl_color = "green" if ct["unrealised_pnl"] >= 0 else "red"
+        html += f'''
+            <div style="margin-top: 0.5rem; padding: 0.5rem; background: #1c2128; border-radius: 4px;">
+                <small style="color: var(--text-dim);">In Position:</small><br>
+                Entry: ${ct["entry_price"]:,.4f} | P&L: <span style="color: var(--{pnl_color});">${ct["unrealised_pnl"]:,.6f}</span> | {ct["elapsed"]:.0f}s
+            </div>
+        '''
+    return html
+
+
+@router.get("/scalp-status", response_class=HTMLResponse)
+async def scalp_status():
+    bot = get_bot()
+    if not bot or not bot.scalp_engine:
+        return '<div class="card"><p style="color: var(--text-dim);">Scalping not active</p></div>'
+
+    s = bot.scalp_engine.get_status()
+    state = s["state"]
+    state_colors = {"scanning": "blue", "in_position": "orange", "cooldown": "text-dim", "entering": "green", "exiting": "red", "stopped": "text-dim"}
+    state_color = state_colors.get(state, "text-dim")
+
+    stats_html = f'''<div class="grid-4">
+        {_stat(f"${s['last_price']:,.4f}", s['symbol'], "blue")}
+        {_stat(state.upper(), "State", state_color)}
+        {_stat(s['mode'].replace('_', ' ').title(), "Mode")}
+        {_stat(f"${s['capital']:,.2f}", "Capital")}
+    </div>'''
+
+    position_html = ""
+    if s.get("current_trade"):
+        ct = s["current_trade"]
+        pnl_color = "green" if ct["unrealised_pnl"] >= 0 else "red"
+        position_html = f'''
+        <div class="card" style="border-color: var(--orange);">
+            <div class="card-title">Active Position</div>
+            <div class="grid-4">
+                {_stat(f"${ct['entry_price']:,.4f}", "Entry Price")}
+                {_stat(f"{ct['quantity']:.6f}", "Quantity")}
+                {_stat(f"${ct['unrealised_pnl']:,.6f}", "Unrealised P&L", pnl_color)}
+                {_stat(f"{ct['elapsed']:.0f}s", "Duration")}
+            </div>
+        </div>'''
+
+    return stats_html + position_html
+
+
+@router.get("/scalp-log", response_class=HTMLResponse)
+async def scalp_log():
+    bot = get_bot()
+    if not bot or not bot.scalp_engine:
+        return '<p style="color: var(--text-dim);">No scalp trades yet</p>'
+
+    trades = list(bot.scalp_engine.recent_trades)
+    if not trades:
+        return '<p style="color: var(--text-dim);">No scalp trades yet. Waiting for triggers...</p>'
+
+    rows = []
+    for t in reversed(trades):
+        duration = (t.exit_time - t.entry_time) if t.exit_time else 0
+        profit = t.profit or 0
+        p_color = "green" if profit >= 0 else "red"
+        result = "WIN" if profit >= 0 else "LOSS"
+        reason = (t.exit_reason or "").upper()
+        rows.append(
+            f'<tr>'
+            f'<td>{t.symbol}</td>'
+            f'<td>${t.entry_price:,.4f}</td>'
+            f'<td>${t.exit_price:,.4f}</td>' if t.exit_price else '<td>—</td>'
+            f'<td style="color: var(--{p_color});">${profit:,.6f}</td>'
+            f'<td>{duration:.1f}s</td>'
+            f'<td>{reason}</td>'
+            f'<td style="color: var(--{p_color});">{result}</td>'
+            f'</tr>'
+        )
+
+    return f'''
+        <table>
+            <thead><tr>
+                <th>Pair</th><th>Entry</th><th>Exit</th><th>Profit</th><th>Duration</th><th>Reason</th><th>Result</th>
+            </tr></thead>
+            <tbody>{"".join(rows)}</tbody>
+        </table>
+    '''
+
+
+@router.get("/scalp-stats", response_class=HTMLResponse)
+async def scalp_stats():
+    bot = get_bot()
+    if not bot or not bot.scalp_engine:
+        return '<p style="color: var(--text-dim);">Scalping not active</p>'
+
+    st = bot.scalp_engine.stats
+    pnl_color = "green" if st.total_profit >= 0 else "red"
+
+    return f'''
+        <table>
+            <tr><td style="color: var(--text-dim);">Total Trades</td><td>{st.total_trades}</td></tr>
+            <tr><td style="color: var(--text-dim);">Wins</td><td style="color: var(--green);">{st.wins}</td></tr>
+            <tr><td style="color: var(--text-dim);">Losses</td><td style="color: var(--red);">{st.losses}</td></tr>
+            <tr><td style="color: var(--text-dim);">Win Rate</td><td>{st.win_rate:.1f}%</td></tr>
+            <tr><td style="color: var(--text-dim);">Total Profit</td><td style="color: var(--{pnl_color});">${st.total_profit:,.6f}</td></tr>
+            <tr><td style="color: var(--text-dim);">Avg Profit/Trade</td><td>${st.avg_profit:,.6f}</td></tr>
+            <tr><td style="color: var(--text-dim);">Avg Duration</td><td>{st.avg_duration:.1f}s</td></tr>
+        </table>
+    '''
+
+
 def _stat(value: str, label: str, color: str = "") -> str:
     cls = f' {color}' if color else ''
     return f'''<div class="card"><div class="stat">
