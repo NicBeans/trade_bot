@@ -173,7 +173,11 @@ async def trade_history():
             profit_cell = f'<td style="color: var(--{p_color});">${t.profit:,.5f}</td>'
         else:
             profit_cell = '<td style="color: var(--text-dim);">—</td>'
-        time_str = t.created_at.strftime("%m-%d %H:%M") if t.created_at else ""
+        from datetime import timezone, timedelta
+        from config.settings import settings as _settings
+        local_tz = timezone(timedelta(hours=_settings.timezone_offset))
+        local_time = t.created_at.replace(tzinfo=timezone.utc).astimezone(local_tz) if t.created_at else None
+        time_str = local_time.strftime("%m-%d %H:%M") if local_time else ""
         rows.append(
             f'<tr>'
             f'<td>{time_str}</td>'

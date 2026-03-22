@@ -41,6 +41,7 @@ class Settings(BaseSettings):
 
     dashboard_host: str = "0.0.0.0"
     dashboard_port: int = 8080
+    timezone_offset: int = 2  # hours offset from UTC (e.g., 2 for SAST)
 
     risk_preset: RiskPresetName = RiskPresetName.MODERATE
     bot_mode: BotMode = BotMode.SUPERVISED
