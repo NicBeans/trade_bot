@@ -87,8 +87,10 @@ async def fresh_grid():
     capital = min(usdt, grid_cap)
 
     if capital > 0:
-        await bot._start_grid(None, capital)
-        results.append(f"Fresh grid started with ${capital:.5f}")
+        # Use pinned symbol if set, otherwise previous symbol, otherwise screener
+        fresh_symbol = bot.settings.trading_symbol or symbol or None
+        await bot._start_grid(fresh_symbol, capital)
+        results.append(f"Fresh grid started on {fresh_symbol or 'screener pick'} with ${capital:.5f}")
     else:
         results.append("No capital available for new grid")
 
