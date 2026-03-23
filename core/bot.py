@@ -13,6 +13,7 @@ from core.scalp_engine import ScalpEngine, ScalpMode, ScalpTrade
 from core.scalp_screener import ScalpScreener
 from db.database import async_session
 from db.repository import TradeRepository
+from core.runtime_settings import RuntimeSettings
 from exchange.binance_adapter import BinanceAdapter
 from exchange.symbol_info import SymbolInfo
 from notifications.discord import DiscordNotifier
@@ -46,6 +47,7 @@ class TradeBot:
         self._swap_in_progress = False
         self.approvals = ApprovalQueue()
         self.trade_repo = TradeRepository(async_session)
+        self.runtime = RuntimeSettings(settings)
 
         # Scalping
         self.scalp_engine: ScalpEngine | None = None
@@ -857,6 +859,207 @@ class TradeBot:
                 logger.exception("Failed to cancel order %s during stop-loss", oid)
 
         self._running = False
+
+    async def apply_settings(self, changes: dict) -> list[str]:
+        """Apply runtime settings changes. Returns list of result messages."""
+        from config.presets import PRESETS
+        from dataclasses import replace as dc_replace
+
+        results = []
+        needs_grid_reset = False
+        needs_scalp_restart = False
+
+        for key, value in changes.items():
+            ok, msg = self.runtime.set(key, value)
+            results.append(msg)
+            if not ok:
+                continue
+
+            if key == "bot_mode":
+                # Immediate — just update the reference
+                from config.settings import BotMode
+                self.settings.__dict__["bot_mode"] = BotMode(value)
+
+            elif key == "risk_preset":
+                # Update preset and flag grid reset
+                self.preset = PRESETS[value]
+                needs_grid_reset = True
+
+            elif key == "grid_capital":
+                needs_grid_reset = True
+
+            elif key == "scalp_capital":
+                needs_scalp_restart = True
+
+        # Apply grid reset if needed
+        if needs_grid_reset and self.grid:
+            await self._partial_grid_reset()
+            results.append("Grid partially reset with new parameters")
+
+        # Apply scalp restart if needed
+        if needs_scalp_restart:
+            new_scalp_cap = self.runtime.get("scalp_capital")
+            if new_scalp_cap > 0 and not self.scalp_engine:
+                # Start scalper
+                self._scalp_task = asyncio.create_task(self._start_scalper(new_scalp_cap))
+                results.append("Scalper started")
+            elif new_scalp_cap == 0 and self.scalp_engine:
+                # Stop scalper
+                if self._scalp_task and not self._scalp_task.done():
+                    self._scalp_task.cancel()
+                if self.scalp_engine:
+                    await self.scalp_engine.stop()
+                    self.scalp_engine = None
+                results.append("Scalper stopped")
+            elif new_scalp_cap > 0 and self.scalp_engine:
+                # Restart with new capital
+                if self._scalp_task and not self._scalp_task.done():
+                    self._scalp_task.cancel()
+                if self.scalp_engine:
+                    await self.scalp_engine.stop()
+                    self.scalp_engine = None
+                self._scalp_task = asyncio.create_task(self._start_scalper(new_scalp_cap))
+                results.append("Scalper restarted with new capital")
+
+        # Notify via Discord
+        change_summary = ", ".join(f"{k}={v}" for k, v in changes.items())
+        await self.notifier.send(f"**Settings Updated** | {change_summary}")
+
+        return results
+
+    async def _partial_grid_reset(self):
+        """Reset grid preserving sell-pending/holding levels."""
+        if not self.grid:
+            return
+
+        symbol = self.grid.config.symbol
+        current_price = self._last_price or await self.exchange.get_symbol_price(symbol)
+        new_capital = self.runtime.get("grid_capital")
+
+        async with self._order_lock:
+            # Cancel only buy-pending orders
+            for level in self.grid.levels:
+                if level.state == LevelState.BUY_PENDING and level.order_id:
+                    try:
+                        await self.exchange.cancel_order(symbol, level.order_id)
+                    except Exception:
+                        logger.exception("Failed to cancel buy order %s", level.order_id)
+                    level.state = LevelState.EMPTY
+                    level.order_id = None
+
+            # Count preserved levels
+            preserved = [l for l in self.grid.levels if l.state in (LevelState.HOLDING, LevelState.SELL_PENDING)]
+            preserved_capital = sum(l.buy_fill_price * l.quantity for l in preserved if l.buy_fill_price)
+
+            # Rebuild grid with new params
+            grid_range = current_price * self.preset.grid_range_pct
+            available_capital = max(0, new_capital - preserved_capital)
+
+            new_config = GridConfig(
+                symbol=symbol,
+                upper_price=current_price + grid_range,
+                lower_price=current_price - grid_range,
+                num_levels=self.preset.grid_levels,
+                total_capital=new_capital,
+            )
+
+            # Preserve old profit/cycles
+            old_profit = self.grid.total_profit
+            old_cycles = self.grid.completed_cycles
+
+            self.grid = GridEngine(new_config, self.symbol_info)
+            self.grid.total_profit = old_profit
+            self.grid.completed_cycles = old_cycles
+
+            # Restore preserved levels into new grid (best-effort match by price proximity)
+            for old_level in preserved:
+                best_match = min(self.grid.levels, key=lambda l: abs(l.buy_price - old_level.buy_price))
+                if best_match.state == LevelState.EMPTY:
+                    best_match.state = old_level.state
+                    best_match.order_id = old_level.order_id
+                    best_match.buy_fill_price = old_level.buy_fill_price
+                    best_match.quantity = old_level.quantity
+
+            # Update risk manager
+            self.risk_manager = RiskManager(self.preset, new_capital)
+
+            # Place new buy orders for empty levels
+            for level in self.grid.get_levels_to_buy(current_price):
+                await self._try_place_buy(level)
+
+            # Persist
+            await self._persist_grid_state(full_save=True)
+
+        logger.info("Partial grid reset: %d preserved levels, new capital $%.5f, %d levels",
+                     len(preserved), new_capital, self.preset.grid_levels)
+
+    async def force_sell_positions(self) -> dict:
+        """Force sell all held/sell-pending positions using swap-style flow."""
+        if not self.grid:
+            return {"error": "No grid running"}
+
+        held_levels = [l for l in self.grid.levels if l.state in (LevelState.HOLDING, LevelState.SELL_PENDING)]
+        if not held_levels:
+            return {"message": "No positions to sell"}
+
+        # Calculate estimated P&L
+        estimated_pnl = 0.0
+        for level in held_levels:
+            if level.buy_fill_price and self._last_price > 0:
+                estimated_pnl += (self._last_price - level.buy_fill_price) * level.quantity
+
+        grid_capital = self.runtime.get("grid_capital")
+        loss_pct = abs(estimated_pnl) / grid_capital * 100 if grid_capital > 0 and estimated_pnl < 0 else 0
+        tolerance = self.settings.grid_swap_loss_tolerance
+
+        if loss_pct > tolerance:
+            # Create approval request
+            await self.notifier.send(
+                f"**Force Sell Request** | {len(held_levels)} positions | "
+                f"Est. P&L: ${estimated_pnl:,.5f} ({loss_pct:.2f}%) | "
+                f"Exceeds tolerance ({tolerance}%). Approve via dashboard."
+            )
+            req = self.approvals.create_request(
+                "force_sell",
+                f"Sell {len(held_levels)} positions. Est. P&L: ${estimated_pnl:,.5f} ({loss_pct:.2f}%)",
+            )
+            approved = await self.approvals.wait_for_decision(req, timeout=self.settings.grid_swap_timeout)
+            if not approved:
+                return {"message": "Force sell rejected or timed out"}
+
+        # Execute sells
+        symbol = self.grid.config.symbol
+        total_pnl = 0.0
+        async with self._order_lock:
+            for level in held_levels:
+                # Cancel existing sell order if any
+                if level.order_id:
+                    try:
+                        await self.exchange.cancel_order(symbol, level.order_id)
+                    except Exception:
+                        pass
+
+                if level.quantity > 0:
+                    try:
+                        qty_str = self.symbol_info.format_quantity(level.quantity)
+                        result = await self.exchange.place_market_order(
+                            symbol=symbol, side="SELL", quantity=float(qty_str),
+                        )
+                        exit_price = float(result.get("fills", [{}])[0].get("price", self._last_price)) if result.get("fills") else self._last_price
+                        pnl = (exit_price - level.buy_fill_price) * level.quantity if level.buy_fill_price else 0
+                        total_pnl += pnl
+                    except Exception:
+                        logger.exception("Failed to force sell level %d", level.index)
+
+                level.state = LevelState.EMPTY
+                level.order_id = None
+                level.buy_fill_price = None
+                level.quantity = 0.0
+
+            await self._persist_grid_state()
+
+        await self.notifier.send(f"**Positions Force Sold** | P&L: ${total_pnl:,.5f}")
+        return {"message": f"Sold {len(held_levels)} positions", "pnl": total_pnl}
 
     async def stop(self):
         logger.info("Stopping TradeBot")

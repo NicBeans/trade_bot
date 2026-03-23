@@ -230,6 +230,78 @@ async def config():
     return f"<table>{table_rows}</table>"
 
 
+@router.get("/settings-form", response_class=HTMLResponse)
+async def settings_form():
+    bot = get_bot()
+    if not bot:
+        return '<p style="color: var(--text-dim);">Bot not initialized</p>'
+
+    current = bot.runtime.get_all()
+    grid_cap = current.get("grid_capital", 0)
+    scalp_cap = current.get("scalp_capital", 0)
+    bot_mode = current.get("bot_mode", "supervised")
+    preset = current.get("risk_preset", "moderate")
+
+    return f'''
+        <div id="settings-fields">
+            <table>
+                <tr>
+                    <td style="color: var(--text-dim);">Grid Capital ($)</td>
+                    <td><input type="number" name="grid_capital" value="{grid_cap}" step="1" min="0"
+                        style="background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.3rem 0.5rem; border-radius: 4px; width: 100px;"></td>
+                </tr>
+                <tr>
+                    <td style="color: var(--text-dim);">Scalp Capital ($)</td>
+                    <td><input type="number" name="scalp_capital" value="{scalp_cap}" step="1" min="0"
+                        style="background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.3rem 0.5rem; border-radius: 4px; width: 100px;"></td>
+                </tr>
+                <tr>
+                    <td style="color: var(--text-dim);">Bot Mode</td>
+                    <td><select name="bot_mode" style="background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.3rem 0.5rem; border-radius: 4px;">
+                        <option value="supervised" {"selected" if bot_mode == "supervised" else ""}>Supervised</option>
+                        <option value="autonomous" {"selected" if bot_mode == "autonomous" else ""}>Autonomous</option>
+                    </select></td>
+                </tr>
+                <tr>
+                    <td style="color: var(--text-dim);">Risk Preset</td>
+                    <td><select name="risk_preset" style="background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.3rem 0.5rem; border-radius: 4px;">
+                        <option value="conservative" {"selected" if preset == "conservative" else ""}>Conservative</option>
+                        <option value="moderate" {"selected" if preset == "moderate" else ""}>Moderate</option>
+                        <option value="aggressive" {"selected" if preset == "aggressive" else ""}>Aggressive</option>
+                    </select></td>
+                </tr>
+            </table>
+            <button type="button" class="btn btn-green" style="margin-top: 0.75rem;" onclick="saveSettings()">Save Settings</button>
+        </div>
+        <script>
+        function saveSettings() {{
+            const data = {{
+                grid_capital: parseFloat(document.querySelector('[name=grid_capital]').value),
+                scalp_capital: parseFloat(document.querySelector('[name=scalp_capital]').value),
+                bot_mode: document.querySelector('[name=bot_mode]').value,
+                risk_preset: document.querySelector('[name=risk_preset]').value,
+            }};
+            fetch('/api/settings', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify(data),
+            }})
+            .then(r => r.json())
+            .then(result => {{
+                const el = document.getElementById('settings-status');
+                if (result.success) {{
+                    el.innerHTML = '<p style="color: var(--green);">Settings saved: ' + result.results.join(', ') + '</p>';
+                }} else {{
+                    el.innerHTML = '<p style="color: var(--red);">Error: ' + (result.error || 'Unknown') + '</p>';
+                }}
+                // Refresh the form
+                htmx.trigger('#settings-form', 'htmx:load');
+            }});
+        }}
+        </script>
+    '''
+
+
 @router.get("/scalp-summary", response_class=HTMLResponse)
 async def scalp_summary():
     bot = get_bot()
