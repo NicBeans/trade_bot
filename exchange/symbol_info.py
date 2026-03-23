@@ -20,6 +20,8 @@ class SymbolInfo:
         self.min_qty = 0.0
         self.max_qty = 0.0
         self.min_notional = 0.0
+        self.bid_multiplier_down = 0.0  # PERCENT_PRICE_BY_SIDE
+        self.ask_multiplier_up = 0.0
 
         for f in raw.get("filters", []):
             if f["filterType"] == "PRICE_FILTER":
@@ -34,6 +36,9 @@ class SymbolInfo:
                 self.min_notional = float(f.get("minNotional", 0))
             elif f["filterType"] == "MIN_NOTIONAL":
                 self.min_notional = float(f.get("minNotional", 0))
+            elif f["filterType"] == "PERCENT_PRICE_BY_SIDE":
+                self.bid_multiplier_down = float(f.get("bidMultiplierDown", 0))
+                self.ask_multiplier_up = float(f.get("askMultiplierUp", 0))
 
     @staticmethod
     def _precision_from_step(step: float) -> int:
@@ -54,7 +59,7 @@ class SymbolInfo:
         raw_qty = spend_amount / price
         return self._round_down(raw_qty, self.step_size)
 
-    def validate_order(self, price: float, quantity: float) -> tuple[bool, str]:
+    def validate_order(self, price: float, quantity: float, current_price: float = 0, side: str = "BUY") -> tuple[bool, str]:
         if quantity < self.min_qty:
             return False, f"Quantity {quantity} below min {self.min_qty}"
         if quantity > self.max_qty:
@@ -62,6 +67,16 @@ class SymbolInfo:
         notional = price * quantity
         if notional < self.min_notional:
             return False, f"Notional {notional:.4f} below min {self.min_notional}"
+        # PERCENT_PRICE_BY_SIDE check
+        if current_price > 0 and self.bid_multiplier_down > 0:
+            if side == "BUY":
+                min_price = current_price * self.bid_multiplier_down
+                if price < min_price:
+                    return False, f"Price {price:.8f} below bid limit {min_price:.8f} (PERCENT_PRICE_BY_SIDE)"
+            elif side == "SELL" and self.ask_multiplier_up > 0:
+                max_price = current_price * self.ask_multiplier_up
+                if price > max_price:
+                    return False, f"Price {price:.8f} above ask limit {max_price:.8f} (PERCENT_PRICE_BY_SIDE)"
         return True, "OK"
 
     @staticmethod

@@ -673,7 +673,7 @@ class TradeBot:
 
     async def _try_place_buy(self, level):
         """Attempt to place a buy order for a grid level."""
-        order_params = self.grid.prepare_buy_order(level)
+        order_params = self.grid.prepare_buy_order(level, current_price=self._last_price)
         if not order_params:
             return
 
@@ -699,7 +699,7 @@ class TradeBot:
 
     async def _try_place_sell(self, level):
         """Attempt to place a sell order for a grid level."""
-        order_params = self.grid.prepare_sell_order(level)
+        order_params = self.grid.prepare_sell_order(level, current_price=self._last_price)
         if not order_params:
             return
 

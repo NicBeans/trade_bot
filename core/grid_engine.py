@@ -88,14 +88,14 @@ class GridEngine:
                 result.append(level)
         return result
 
-    def prepare_buy_order(self, level: GridLevel) -> dict | None:
+    def prepare_buy_order(self, level: GridLevel, current_price: float = 0) -> dict | None:
         """Prepare a buy order for a grid level. Returns order params or None if invalid."""
         spend = self.capital_per_level()
         qty = self.symbol_info.quantity_for_spend(spend, level.buy_price)
         price_str = self.symbol_info.format_price(level.buy_price)
         qty_str = self.symbol_info.format_quantity(qty)
 
-        valid, reason = self.symbol_info.validate_order(level.buy_price, qty)
+        valid, reason = self.symbol_info.validate_order(level.buy_price, qty, current_price=current_price, side="BUY")
         if not valid:
             logger.debug("Skip buy at level %d (%.8f): %s", level.index, level.buy_price, reason)
             return None
@@ -108,13 +108,13 @@ class GridEngine:
             "level_index": level.index,
         }
 
-    def prepare_sell_order(self, level: GridLevel) -> dict | None:
+    def prepare_sell_order(self, level: GridLevel, current_price: float = 0) -> dict | None:
         """Prepare a sell order for a grid level. Returns order params or None if invalid."""
         qty = level.quantity
         price_str = self.symbol_info.format_price(level.sell_price)
         qty_str = self.symbol_info.format_quantity(qty)
 
-        valid, reason = self.symbol_info.validate_order(level.sell_price, qty)
+        valid, reason = self.symbol_info.validate_order(level.sell_price, qty, current_price=current_price, side="SELL")
         if not valid:
             logger.debug("Skip sell at level %d (%.8f): %s", level.index, level.sell_price, reason)
             return None
