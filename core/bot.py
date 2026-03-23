@@ -108,6 +108,9 @@ class TradeBot:
             self._running = False
             return
 
+        # Restore cumulative P&L from trade history
+        await self._restore_pnl_from_db()
+
         # Keep alive + periodic tasks
         self._last_daily_summary = time.time()
         self._last_rescreen = time.time()
@@ -764,6 +767,26 @@ class TradeBot:
             async with self._order_lock:
                 self.grid.on_order_cancelled(order_id)
                 await self._persist_grid_state()
+
+    async def _restore_pnl_from_db(self):
+        """Restore cumulative P&L from trade history in DB."""
+        try:
+            summary = await self.trade_repo.get_trade_summary(
+                trading_mode=self.settings.trading_mode.value,
+            )
+            total_profit = summary.get("total_profit", 0)
+            total_fees = summary.get("total_fees", 0)
+
+            if self.risk_manager and total_profit != 0:
+                if total_profit > 0:
+                    self.risk_manager.cumulative_profit = total_profit
+                else:
+                    self.risk_manager.cumulative_loss = abs(total_profit)
+
+            logger.info("P&L restored from DB: profit=%.5f, fees=%.5f, trades=%d",
+                         total_profit, total_fees, summary.get("total_trades", 0))
+        except Exception:
+            logger.debug("Could not restore P&L from DB")
 
     async def _persist_grid_state(self, full_save: bool = False):
         """Save current grid state to DB. full_save=True creates new record."""
