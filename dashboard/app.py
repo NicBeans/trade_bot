@@ -1,20 +1,71 @@
 """FastAPI dashboard application."""
 
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
+from config.settings import settings
 from dashboard.state import get_bot, set_bot  # noqa: F401 — re-exported for main.py
 
 app = FastAPI(title="Trade Bot Dashboard")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+
+
+# --- Auth middleware ---
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    key = settings.dashboard_key
+    if not key:
+        return await call_next(request)
+
+    # Allow health check without auth
+    if request.url.path == "/health":
+        return await call_next(request)
+
+    # Allow login page and login POST
+    if request.url.path in ("/login", "/api/login"):
+        return await call_next(request)
+
+    # Check cookie
+    token = request.cookies.get("dashboard_token")
+    if token == key:
+        return await call_next(request)
+
+    # Check query param (for API access)
+    if request.query_params.get("key") == key:
+        return await call_next(request)
+
+    # Not authenticated
+    if request.url.path.startswith("/api/"):
+        return Response(content='{"error": "unauthorized"}', status_code=401, media_type="application/json")
+    return RedirectResponse(url="/login")
+
 
 # Register routers
 from dashboard.routes.partials import router as partials_router
 from dashboard.routes.controls import router as controls_router
 app.include_router(partials_router)
 app.include_router(controls_router)
+
+
+# --- Auth ---
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
+
+
+@app.post("/api/login")
+async def login(request: Request):
+    form = await request.form()
+    key = form.get("key", "")
+    if key == settings.dashboard_key:
+        response = RedirectResponse(url="/", status_code=303)
+        response.set_cookie("dashboard_token", key, httponly=True, max_age=86400 * 30)
+        return response
+    return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid key"})
 
 
 # --- Pages ---

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trade Bot - Login</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: #0d1117;
+            color: #e6edf3;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        .login-box {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 2rem;
+            width: 320px;
+        }
+        h1 { font-size: 1.2rem; margin-bottom: 1.5rem; text-align: center; }
+        input {
+            width: 100%;
+            padding: 0.5rem 0.75rem;
+            background: #0d1117;
+            color: #e6edf3;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            font-size: 1rem;
+            margin-bottom: 1rem;
+        }
+        input:focus { outline: none; border-color: #58a6ff; }
+        button {
+            width: 100%;
+            padding: 0.5rem;
+            background: #238636;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+        button:hover { background: #2ea043; }
+        .error { color: #f85149; font-size: 0.85rem; margin-bottom: 1rem; text-align: center; }
+    </style>
+</head>
+<body>
+    <form class="login-box" method="POST" action="/api/login">
+        <h1>Trade Bot</h1>
+        {% if error %}<p class="error">{{ error }}</p>{% endif %}
+        <input type="password" name="key" placeholder="Access key" autofocus>
+        <button type="submit">Enter</button>
+    </form>
+</body>
+</html>

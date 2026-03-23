@@ -41,6 +41,7 @@ class Settings(BaseSettings):
 
     dashboard_host: str = "0.0.0.0"
     dashboard_port: int = 8080
+    dashboard_key: str = ""  # access key for dashboard (empty = no auth)
     timezone_offset: int = 2  # hours offset from UTC (e.g., 2 for SAST)
 
     risk_preset: RiskPresetName = RiskPresetName.MODERATE
