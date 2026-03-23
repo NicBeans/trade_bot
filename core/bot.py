@@ -891,6 +891,9 @@ class TradeBot:
             elif key == "scalp_capital":
                 needs_scalp_restart = True
 
+            elif key == "trading_mode":
+                results.append("Trading mode change requires a full restart. Update TRADING_MODE in .env and restart the bot.")
+
         # Apply grid reset if needed
         if needs_grid_reset and self.grid:
             await self._partial_grid_reset()
@@ -1060,6 +1063,56 @@ class TradeBot:
 
         await self.notifier.send(f"**Positions Force Sold** | P&L: ${total_pnl:,.5f}")
         return {"message": f"Sold {len(held_levels)} positions", "pnl": total_pnl}
+
+    async def reset_pnl(self) -> dict:
+        """Reset all cumulative P&L counters to zero."""
+        old_grid_profit = 0.0
+        old_scalp_profit = 0.0
+        old_risk_pnl = 0.0
+
+        if self.grid:
+            old_grid_profit = self.grid.total_profit
+            self.grid.total_profit = 0.0
+            self.grid.completed_cycles = 0
+
+        if self.risk_manager:
+            old_risk_pnl = self.risk_manager.cumulative_profit - self.risk_manager.cumulative_loss
+            self.risk_manager.cumulative_profit = 0.0
+            self.risk_manager.cumulative_loss = 0.0
+
+        if self.scalp_engine:
+            old_scalp_profit = self.scalp_engine.stats.total_profit
+            self.scalp_engine.stats.total_trades = 0
+            self.scalp_engine.stats.wins = 0
+            self.scalp_engine.stats.losses = 0
+            self.scalp_engine.stats.total_profit = 0.0
+            self.scalp_engine.stats.total_duration = 0.0
+            self.scalp_engine.stats.false_signals = 0
+            self.scalp_engine.stats.volume_spikes_detected = 0
+            self.scalp_engine.recent_trades.clear()
+
+        # Persist reset grid state
+        if self.grid:
+            await self._persist_grid_state()
+
+        total_reset = old_grid_profit + old_scalp_profit
+        await self.notifier.send(
+            f"**P&L Reset** | Grid: ${old_grid_profit:,.5f} → $0 | "
+            f"Scalp: ${old_scalp_profit:,.5f} → $0 | "
+            f"Risk: ${old_risk_pnl:,.5f} → $0"
+        )
+
+        logger.info("P&L reset: grid=%.5f, scalp=%.5f, risk=%.5f",
+                     old_grid_profit, old_scalp_profit, old_risk_pnl)
+
+        return {
+            "message": "P&L counters reset to zero",
+            "previous": {
+                "grid_profit": old_grid_profit,
+                "scalp_profit": old_scalp_profit,
+                "risk_net_pnl": old_risk_pnl,
+            },
+        }
 
     async def stop(self):
         logger.info("Stopping TradeBot")

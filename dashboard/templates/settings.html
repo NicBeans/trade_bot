@@ -17,6 +17,7 @@
                 <button class="btn btn-red" hx-post="/api/controls/stop" hx-confirm="Stop the bot?" hx-swap="none">Stop Bot</button>
                 <button class="btn" hx-post="/api/controls/force-reset" hx-confirm="Force grid reset?" hx-swap="none">Force Grid Reset</button>
                 <button class="btn btn-red" hx-post="/api/controls/force-sell-positions" hx-confirm="Force sell all held positions?" hx-target="#settings-status" hx-swap="innerHTML">Force Sell Positions</button>
+                <button class="btn" hx-post="/api/controls/reset-pnl" hx-confirm="Reset all P&L counters to zero?" hx-target="#settings-status" hx-swap="innerHTML">Reset P&L</button>
             </div>
         </div>
 

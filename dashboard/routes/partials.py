@@ -241,30 +241,48 @@ async def settings_form():
     scalp_cap = current.get("scalp_capital", 0)
     bot_mode = current.get("bot_mode", "supervised")
     preset = current.get("risk_preset", "moderate")
+    trading_mode = current.get("trading_mode", "testnet")
+
+    input_style = 'style="background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.3rem 0.5rem; border-radius: 4px; width: 100px;"'
+    select_style = 'style="background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.3rem 0.5rem; border-radius: 4px;"'
+
+    # P&L summary
+    grid_profit = bot.grid.total_profit if bot.grid else 0
+    scalp_profit = bot.scalp_engine.stats.total_profit if bot.scalp_engine else 0
+    grid_cycles = bot.grid.completed_cycles if bot.grid else 0
+    risk_pnl = (bot.risk_manager.cumulative_profit - bot.risk_manager.cumulative_loss) if bot.risk_manager else 0
+    total_pnl = grid_profit + scalp_profit
+    pnl_color = "green" if total_pnl >= 0 else "red"
 
     return f'''
         <div id="settings-fields">
             <table>
                 <tr>
+                    <td style="color: var(--text-dim);">Trading Mode</td>
+                    <td><select name="trading_mode" {select_style}>
+                        <option value="testnet" {"selected" if trading_mode == "testnet" else ""}>Testnet</option>
+                        <option value="mainnet" {"selected" if trading_mode == "mainnet" else ""}>Mainnet</option>
+                    </select>
+                    <small style="color: var(--text-dim);"> (requires restart)</small></td>
+                </tr>
+                <tr>
                     <td style="color: var(--text-dim);">Grid Capital ($)</td>
-                    <td><input type="number" name="grid_capital" value="{grid_cap}" step="1" min="0"
-                        style="background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.3rem 0.5rem; border-radius: 4px; width: 100px;"></td>
+                    <td><input type="number" name="grid_capital" value="{grid_cap}" step="1" min="0" {input_style}></td>
                 </tr>
                 <tr>
                     <td style="color: var(--text-dim);">Scalp Capital ($)</td>
-                    <td><input type="number" name="scalp_capital" value="{scalp_cap}" step="1" min="0"
-                        style="background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.3rem 0.5rem; border-radius: 4px; width: 100px;"></td>
+                    <td><input type="number" name="scalp_capital" value="{scalp_cap}" step="1" min="0" {input_style}></td>
                 </tr>
                 <tr>
                     <td style="color: var(--text-dim);">Bot Mode</td>
-                    <td><select name="bot_mode" style="background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.3rem 0.5rem; border-radius: 4px;">
+                    <td><select name="bot_mode" {select_style}>
                         <option value="supervised" {"selected" if bot_mode == "supervised" else ""}>Supervised</option>
                         <option value="autonomous" {"selected" if bot_mode == "autonomous" else ""}>Autonomous</option>
                     </select></td>
                 </tr>
                 <tr>
                     <td style="color: var(--text-dim);">Risk Preset</td>
-                    <td><select name="risk_preset" style="background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 0.3rem 0.5rem; border-radius: 4px;">
+                    <td><select name="risk_preset" {select_style}>
                         <option value="conservative" {"selected" if preset == "conservative" else ""}>Conservative</option>
                         <option value="moderate" {"selected" if preset == "moderate" else ""}>Moderate</option>
                         <option value="aggressive" {"selected" if preset == "aggressive" else ""}>Aggressive</option>
@@ -273,6 +291,17 @@ async def settings_form():
             </table>
             <button type="button" class="btn btn-green" style="margin-top: 0.75rem;" onclick="saveSettings()">Save Settings</button>
         </div>
+
+        <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border);">
+            <div style="font-size: 0.8rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 0.75rem; letter-spacing: 0.05em;">Cumulative P&L</div>
+            <table>
+                <tr><td style="color: var(--text-dim);">Grid Profit</td><td style="color: var(--{"green" if grid_profit >= 0 else "red"});">${grid_profit:,.5f} ({grid_cycles} cycles)</td></tr>
+                <tr><td style="color: var(--text-dim);">Scalp Profit</td><td style="color: var(--{"green" if scalp_profit >= 0 else "red"});">${scalp_profit:,.5f}</td></tr>
+                <tr><td style="color: var(--text-dim);">Total P&L</td><td style="color: var(--{pnl_color}); font-weight: bold;">${total_pnl:,.5f}</td></tr>
+            </table>
+            <button type="button" class="btn btn-red" style="margin-top: 0.5rem;" onclick="resetPnl()">Reset P&L</button>
+        </div>
+
         <script>
         function saveSettings() {{
             const data = {{
@@ -280,6 +309,7 @@ async def settings_form():
                 scalp_capital: parseFloat(document.querySelector('[name=scalp_capital]').value),
                 bot_mode: document.querySelector('[name=bot_mode]').value,
                 risk_preset: document.querySelector('[name=risk_preset]').value,
+                trading_mode: document.querySelector('[name=trading_mode]').value,
             }};
             fetch('/api/settings', {{
                 method: 'POST',
@@ -294,7 +324,16 @@ async def settings_form():
                 }} else {{
                     el.innerHTML = '<p style="color: var(--red);">Error: ' + (result.error || 'Unknown') + '</p>';
                 }}
-                // Refresh the form
+                htmx.trigger('#settings-form', 'htmx:load');
+            }});
+        }}
+        function resetPnl() {{
+            if (!confirm('Reset all P&L counters to zero?')) return;
+            fetch('/api/controls/reset-pnl', {{ method: 'POST' }})
+            .then(r => r.json())
+            .then(result => {{
+                const el = document.getElementById('settings-status');
+                el.innerHTML = '<p style="color: var(--green);">' + (result.message || 'P&L reset') + '</p>';
                 htmx.trigger('#settings-form', 'htmx:load');
             }});
         }}

@@ -32,6 +32,14 @@ async def force_reset():
     return {"success": True, "message": f"Grid reset around {price:.5f}"}
 
 
+@router.post("/controls/reset-pnl")
+async def reset_pnl():
+    bot = get_bot()
+    if not bot:
+        return {"error": "Bot not initialized"}
+    return await bot.reset_pnl()
+
+
 @router.post("/controls/force-sell-positions")
 async def force_sell():
     bot = get_bot()

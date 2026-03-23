@@ -9,6 +9,7 @@ CHANGEABLE_KEYS = {
     "scalp_capital": float,
     "bot_mode": str,
     "risk_preset": str,
+    "trading_mode": str,
 }
 
 
@@ -43,6 +44,8 @@ class RuntimeSettings:
             return False, "Bot mode must be 'supervised' or 'autonomous'"
         if key == "risk_preset" and typed_value not in ("conservative", "moderate", "aggressive"):
             return False, "Risk preset must be 'conservative', 'moderate', or 'aggressive'"
+        if key == "trading_mode" and typed_value not in ("testnet", "mainnet"):
+            return False, "Trading mode must be 'testnet' or 'mainnet'"
 
         old_value = self.get(key)
         self._overrides[key] = typed_value
