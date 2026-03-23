@@ -54,7 +54,7 @@ app.include_router(controls_router)
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="login.html", context={"error": None})
 
 
 @app.post("/api/login")
@@ -65,29 +65,29 @@ async def login(request: Request):
         response = RedirectResponse(url="/", status_code=303)
         response.set_cookie("dashboard_token", key, httponly=True, max_age=86400 * 30)
         return response
-    return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid key"})
+    return templates.TemplateResponse(request=request, name="login.html", context={"error": "Invalid key"})
 
 
 # --- Pages ---
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="index.html")
 
 
 @app.get("/trades", response_class=HTMLResponse)
 async def trades_page(request: Request):
-    return templates.TemplateResponse("trades.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="trades.html")
 
 
 @app.get("/scalping", response_class=HTMLResponse)
 async def scalping_page(request: Request):
-    return templates.TemplateResponse("scalping.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="scalping.html")
 
 
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
-    return templates.TemplateResponse("settings.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="settings.html")
 
 
 # --- JSON API Endpoints ---
