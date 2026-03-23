@@ -97,7 +97,7 @@ class GridEngine:
 
         valid, reason = self.symbol_info.validate_order(level.buy_price, qty)
         if not valid:
-            logger.warning("Skip buy at level %d (%.8f): %s", level.index, level.buy_price, reason)
+            logger.debug("Skip buy at level %d (%.8f): %s", level.index, level.buy_price, reason)
             return None
 
         return {
@@ -116,7 +116,7 @@ class GridEngine:
 
         valid, reason = self.symbol_info.validate_order(level.sell_price, qty)
         if not valid:
-            logger.warning("Skip sell at level %d (%.8f): %s", level.index, level.sell_price, reason)
+            logger.debug("Skip sell at level %d (%.8f): %s", level.index, level.sell_price, reason)
             return None
 
         return {

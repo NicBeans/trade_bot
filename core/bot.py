@@ -571,8 +571,10 @@ class TradeBot:
         # 3. Notify
         await self.notifier.notify_swap_executed(old_symbol, new_symbol, sell_pnl)
 
-        # 4. Rebuild grid on new symbol
-        grid_capital = self.risk_manager.available_capital if self.risk_manager else self.grid.config.total_capital
+        # 4. Rebuild grid on new symbol — use actual USDT balance
+        usdt_balance = await self.exchange.get_account_balance("USDT")
+        grid_cap = self.runtime.get("grid_capital")
+        grid_capital = min(usdt_balance, grid_cap)
         await self._start_grid(new_symbol, grid_capital)
 
         logger.info("Grid swapped: %s -> %s (sell P&L: $%.5f)", old_symbol, new_symbol, sell_pnl)
@@ -844,14 +846,18 @@ class TradeBot:
             except Exception:
                 logger.exception("Failed to cancel order %s during grid reset", oid)
 
-        # Rebuild grid around new price
+        # Rebuild grid around new price — use actual USDT balance for capital
+        usdt_balance = await self.exchange.get_account_balance("USDT")
+        grid_cap = self.runtime.get("grid_capital")
+        reset_capital = min(usdt_balance, grid_cap) if grid_cap > 0 else self.grid.config.total_capital
+
         grid_range = current_price * self.preset.grid_range_pct
         new_config = GridConfig(
             symbol=self.grid.config.symbol,
             upper_price=current_price + grid_range,
             lower_price=current_price - grid_range,
             num_levels=self.preset.grid_levels,
-            total_capital=self.risk_manager.available_capital,
+            total_capital=reset_capital,
         )
 
         old_range = (self.grid.config.lower_price, self.grid.config.upper_price)
